@@ -1,0 +1,29 @@
+import {TrapVelocGenerator} from './TrapVelocGenerator.js'
+
+// ******** main loop ********
+function mainLoop(prevTime = performance.now()-timeInterval) {
+  const now = performance.now();
+  const deltaTime = now - prevTime;
+  // {xt, vt} = generator.calcNext(xt, vt, deltaTime / 1000); // time step in seconds
+  const res = generator.calcNext(xt, vt, 10 / 1000); // time step in seconds
+  xt = res.x; vt = res.v;
+  const constrained = res.constrained;
+  console.log('now: ', (now/1000).toFixed(3), ' xt: ', xt.toFixed(3), ' vt: ', vt.toFixed(3),
+	     	      ' constrained: ', constrained);
+  if (xt*xt < 10e-6 && vt*vt < 10e-6) return;
+  setTimeout(() => mainLoop(now), 0); // 次のループをスケジュール
+}
+
+// ******** main loop start ********
+const timeInterval = 4; // time step for simulation in milliseconds
+
+
+let xt = parseFloat(process.argv[2])
+let vt = parseFloat(process.argv[3])
+
+const generator = new TrapVelocGenerator(1.0, 0.1, 1.0, 0.05); // gain, deceleration, max velocity, acceleration
+// console.log('start main loop x0: ', xt, ' v0: ', vt)
+mainLoop(); // メインループを開始
+// for (x= -20; x<20; x += 0.01) {
+//   console.log(x, vsFunc(x));
+// }

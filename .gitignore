@@ -1,0 +1,5 @@
+node_modules/
+dist/
+out/
+ik-cd-worker-*.tgz
+ToDo.md

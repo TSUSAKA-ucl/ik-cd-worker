@@ -1,0 +1,30 @@
+{
+  "name": "ik-cd-worker",
+  "version": "0.2.1",
+  "files": [
+    "public/wasm/cd_module.js",
+    "public/wasm/slrm_module.js",
+    "public/wasm/cd_module.wasm",
+    "public/wasm/slrm_module.wasm",
+    "public/ik_cd_worker.js",
+    "src/IkWorkerManager.js"
+  ],
+  "exports": {
+    ".": "./src/IkWorkerManager.js"
+  },
+  "scripts": {
+    "build": "vite build",
+    "lint": "eslint .",
+    "pack": "pnpm pack"
+  },
+  "peerDependencies": {
+    "aframe": "1.6",
+    "@msgpack/msgpack": "^3.1.2"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.30.1",
+    "eslint": "^9.30.1",
+    "globals": "^16.3.0",
+    "vite": "^5.0.0"
+  }
+}
