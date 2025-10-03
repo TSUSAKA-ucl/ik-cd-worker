@@ -1,14 +1,17 @@
 {
-  "name": "ik-cd-worker",
-  "version": "0.2.1",
+  "name": "@ucl-nuee/ik-cd-worker",
+  "version": "0.2.3",
   "files": [
     "public/wasm/cd_module.js",
     "public/wasm/slrm_module.js",
     "public/wasm/cd_module.wasm",
     "public/wasm/slrm_module.wasm",
     "public/ik_cd_worker.js",
-    "src/IkWorkerManager.js"
+    "scripts/copy-wasm.js"
   ],
+  "bin": {
+    "copy-wasm": "./scripts/copy-wasm.js"
+  },
   "exports": {
     ".": "./src/IkWorkerManager.js"
   },
