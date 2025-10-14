@@ -171,18 +171,18 @@ function createJointModel(mod, list) {
   }
 
   const jointModelsArray = list.map(obj => {
-    const xyz_in = obj.origin.$.xyz ?? [NaN, NaN, NaN];
+    const xyz_in = obj.origin.$.xyz ?? [0,0,0];// [NaN, NaN, NaN];
     const xyz = modDoubleVector(mod,
 				Array.isArray(xyz_in) && xyz_in.length === 3
-				? xyz_in : [NaN, NaN, NaN]);
-    const rpy_in = obj.origin.$.rpy ?? [NaN, NaN, NaN];
+				? xyz_in : [0,0,0]);//[NaN, NaN, NaN]);
+    const rpy_in = obj.origin.$.rpy ?? [0,0,0];//[NaN, NaN, NaN];
     const rpy = modDoubleVector(mod,
 				Array.isArray(rpy_in) && rpy_in.length === 3
-				? rpy_in : [NaN, NaN, NaN]);
-    const axis_in = obj.axis.$.xyz ?? [NaN, NaN, NaN];
+				? rpy_in : [0,0,0]);//[NaN, NaN, NaN]);
+    const axis_in = obj.axis.$.xyz ?? [0,0,1];//[NaN, NaN, NaN];
     const axis = modDoubleVector(mod,
 				 Array.isArray(axis_in) && axis_in.length === 3
-				 ? axis_in : [NaN, NaN, NaN]);
+				 ? axis_in : [0,0,1]);//[NaN, NaN, NaN]);
     const jointModel = new mod.JointModelFlatStruct(axis, xyz, rpy);
     axis.delete();
     xyz.delete();
@@ -209,6 +209,16 @@ self.onmessage = function(event) {
     self.postMessage({type: 'shutdown_complete'});
     shutdownFlag = true; // workerを終了するフラグを立てる
     break;
+  case 'set_slrm_loglevel':
+    if (data?.logLevel && 0<=data.logLevel && data.logLevel<=4) {
+      SlrmModule.setJsLogLevel(data.logLevel);
+    }
+    break; 
+  case 'set_cd_loglevel':
+    if (data?.logLevel && 0<=data.logLevel && data.logLevel<=4) {
+      CdModule.setJsLogLevel(data.logLevel);
+    }
+    break; 
   case 'init': if (workerState === st.waitingRobotType) {
     workerState = st.generatorMaking;
     console.log('constructing CmdVelGenerator with :', data.filename);
