@@ -152,7 +152,6 @@ function scheduleReconnect() {
 }
 
 
-
 function createJointModel(mod, list) {
   // 各行をJointModelFlatStructに変換
   function modDoubleVector(mod, jsArray) {
@@ -193,6 +192,70 @@ function createJointModel(mod, list) {
   return { jointModelVector, jointModelsArray }
 }
 
+// ******** utility functions ********
+
+function sortJointsByHierarchy(urdfData) {
+  const graph = new Map(); // parent -> list of joints
+  const inDegree = new Map(); // child link name -> number of parents
+  const linkToJoint = new Map(); // child link -> joint object (for ordered result)
+  urdfData.forEach(joint => {
+    const parent = joint.parent.$.link;
+    const child = joint.child.$.link;
+    if (!graph.has(parent)) { graph.set(parent, []); }
+    graph.get(parent).push(joint);
+    inDegree.set(child, (inDegree.get(child) || 0) + 1);
+    if (!inDegree.has(parent)) { inDegree.set(parent, 0); }
+    linkToJoint.set(child, joint);
+  });
+  const queue = [];
+  for (const [link, degree] of inDegree.entries()) {
+    if (degree === 0) { queue.push(link); }
+  }
+  const orderedJoints = [];
+  while (queue.length > 0) {
+    const parentLink = queue.shift();
+    const children = graph.get(parentLink) || [];
+    for (const joint of children) {
+      const childLink = joint.child.$.link;
+      orderedJoints.push(joint);
+      inDegree.set(childLink, inDegree.get(childLink) - 1);
+      if (inDegree.get(childLink) === 0) {
+	queue.push(childLink);
+      }
+    }
+  }
+  if (orderedJoints.length !== urdfData.length) {
+    console.warn('Cycle detected or disconnected components in URDF joints');
+  }
+  return orderedJoints;
+}
+
+function updateLeaves(a, b) {
+  for (const key in b) {
+    if (!(key in a)) {
+      console.warn('key in update.json:',key,' ignored');
+      continue; // aに存在しないキーは無視
+    }
+    const bVal = b[key];
+    const aVal = a[key];
+    if (
+      bVal !== null &&
+      typeof bVal === "object" &&
+      !Array.isArray(bVal) &&
+      aVal !== null &&
+      typeof aVal === "object" &&
+      !Array.isArray(aVal)
+    ) {
+      updateLeaves(aVal, bVal); // 両方オブジェクトなら再帰
+    } else {
+      console.warn('key:',key,'val:',a[key],'is replaced by',bVal);
+      a[key] = bVal; // 配列やオブジェクトでない値は上書き
+    }
+  }
+  return a;
+}
+
+
 // ******** worker message handler ********
 console.log('now setting onmessage')
 self.onmessage = function(event) {
@@ -222,6 +285,7 @@ self.onmessage = function(event) {
   case 'init': if (workerState === st.waitingRobotType) {
     workerState = st.generatorMaking;
     console.log('constructing CmdVelGenerator with :', data.filename);
+    console.log('URDF modifier file is', data.modifier);
     // 初期化処理
     const { makeDoubleVector } = createHelpers(SlrmModule);
     const { makeCdDoubleVector, makeConvexShape } = createCdHelpers(CdModule);
@@ -231,103 +295,124 @@ self.onmessage = function(event) {
     fetch(data.filename)
       .then(response => response.json())
       .then(jsonData => {
-	const revolutes = jsonData.filter(obj => obj.$.type === 'revolute');
-	const {jointModelVector,
-	       jointModelsArray} = createJointModel(SlrmModule, revolutes);
-	console.log('type of SlrmModule.CmdVelGen: '
-		    + typeof SlrmModule.CmdVelGenerator);
-	cmdVelGen = new SlrmModule.CmdVelGenerator(jointModelVector);
-	console.log("type of jointModels is ", typeof jointModels);
-	jointModelsArray.forEach(model => model.delete());
-	jointModelVector.delete();
-	if (cmdVelGen === null || cmdVelGen === undefined) {
-	  console.error('generation of CmdVelGen instance failed');
-	  cmdVelGen = null;
-	  return;
+	let urdfIsSorted = false;
+	let urdfData = null;
+	if (Array.isArray(jsonData)) {
+	  urdfData = {...jsonData};
+	  urdfIsSorted = true;
+	} else {
+	  urdfData = jsonData;
 	}
-	if (cmdVelGen !== null && cmdVelGen !== undefined) {
-	  console.log('CmdVelGen instance created:', cmdVelGen);
-	}
-	// joint limitsの設定
-	revolutes.forEach(obj => {
-	  jointUpperLimits.push(obj.limit.$.upper);
-	  jointLowerLimits.push(obj.limit.$.lower);
-	});
-	console.log('jointLimits: ', jointUpperLimits, jointLowerLimits);
-	console.log('Status Definitions: ' +
-		    "OK:" + SlrmModule.CmdVelGeneratorStatus.OK.value + ", " +
-		    "ERROR:" + SlrmModule.CmdVelGeneratorStatus.ERROR.value + ", " +
-		    "END:" + SlrmModule.CmdVelGeneratorStatus.END.value);
-	cmdVelGen.setExactSolution(exactSolution); // 特異点通過のための設定
-	cmdVelGen.setLinearVelocityLimit(10.0); // 10 m/s
-	cmdVelGen.setAngularVelocityLimit(2*Math.PI); // 2Pi rad/s
-	cmdVelGen.setAngularGain(20.0); // 20 s^-1
-	cmdVelGen.setLinearGain(20.0); // 20 s^-1
-	const jointVelocityLimit
-	  = makeDoubleVector(Array(revolutes.length).fill(Math.PI*2.0)); // 2.0Pi/s // 20Pi rad/s
-	cmdVelGen.setJointVelocityLimit(jointVelocityLimit); // ジョイント速度制限を設定
-	jointVelocityLimit.delete();
-
-	if (data.linkShapes) {
-	  CdModule.setJsLogLevel(2); // 3: info level, 4: debug level
-	  const {jointModelVector,
-		 jointModelsArray} = createJointModel(CdModule, revolutes);
-	  const basePosition = makeCdDoubleVector([0.0, 0.0, 0.0]);
-	  const baseOrientation = makeCdDoubleVector([1.0, 0.0, 0.0, 0.0]);
-	  gjkCd = new CdModule.CollisionDetection(jointModelVector,
-						  basePosition,
-						  baseOrientation);
-	  // jointModels.forEach(model => model.delete());
-	  jointModelVector.delete();
-	  jointModelsArray.forEach(model => model.delete());
-	  basePosition.delete();
-	  baseOrientation.delete();
-	}
-	if (gjkCd) {
-	  fetch(data.linkShapes)
-	    .then(response => response.json())
-	    .then(linkShapes => {
-	      if (linkShapes.length !== revolutes.length + 2) { // +2はbaseとend_effectorの分
-		console.error('リンク形状定義の数がリンクモデルの数(+2)と一致しません。');
-		return;
-	      }
-	      console.log('linkShapes.length: ', linkShapes.length);
-	      for (let i = 0; i < linkShapes.length; ++i) {
-		// console.log(`リンク番号${i} のvector生成`);
-		const shapeWasm = new CdModule.ConvexShapeVector();
-		for (const convex of linkShapes[i]) {
-		  const convexWasm = makeConvexShape(convex);
-		  // console.log('size of convex js: ', convex.length);
-		  shapeWasm.push_back(convexWasm);
-		  convexWasm.delete();
-		}
-		gjkCd.addLinkShape(i, shapeWasm);
-		shapeWasm.delete();
-	      }
-	      console.log('setting up of link shapes is finished');
-	      gjkCd.infoLinkShapes();
-	      const testPairs = [[0,2],[0,3],[0,4],[0,5],[0,6],[0,7],
-				 [1,3],[1,4],[1,5],[1,6],[1,7],
-				 [2,4],[2,5],[2,6],[2,7],
-				 [3,5],[3,6],[3,7]
-				];
-	      gjkCd.clearTestPairs();
-	      for (const pair of testPairs) {
-		gjkCd.addTestPair(pair[0],pair[1]);
-	      }
-	    })
-	    .catch(error => {
-	      console.error('Error fetching or parsing SHAPE file:', error);
+	fetch(data.modifier)
+	  .then(response => response.json())
+	  .then(modifierData => {
+	    updateLeaves(urdfData, modifierData);
+	    urdfData = Object.values(urdfData);
+	    if (!urdfIsSorted) {
+	      urdfData = sortJointsByHierarchy(urdfData);
+	    }
+	    const revolutes = urdfData.filter(obj => obj.$.type === 'revolute');
+	    const {jointModelVector,
+		   jointModelsArray} = createJointModel(SlrmModule, revolutes);
+	    console.log('type of SlrmModule.CmdVelGen: '
+			+ typeof SlrmModule.CmdVelGenerator);
+	    cmdVelGen = new SlrmModule.CmdVelGenerator(jointModelVector);
+	    console.log("type of jointModels is ", typeof jointModels);
+	    jointModelsArray.forEach(model => model.delete());
+	    jointModelVector.delete();
+	    if (cmdVelGen === null || cmdVelGen === undefined) {
+	      console.error('generation of CmdVelGen instance failed');
+	      cmdVelGen = null;
+	      return;
+	    }
+	    if (cmdVelGen !== null && cmdVelGen !== undefined) {
+	      console.log('CmdVelGen instance created:', cmdVelGen);
+	    }
+	    // joint limitsの設定
+	    revolutes.forEach(obj => {
+	      jointUpperLimits.push(obj.limit.$.upper);
+	      jointLowerLimits.push(obj.limit.$.lower);
 	    });
-	}
-	if (data.bridgeUrl) {
-	  console.log('recieve bridge URL: ', data.bridgeUrl);
-	  // bridge用のURLが付いているためbridgeが使える
-	  connectBridge(data.bridgeUrl);
-	}
-	// なにかの加減でオブジェクト生成に失敗した場合はここでエラーがthrownされる
-	workerState = st.generatorReady;
-	self.postMessage({type: 'generator_ready'});
+	    console.log('jointLimits: ', jointUpperLimits, jointLowerLimits);
+	    console.log('Status Definitions: ' +
+			"OK:" + SlrmModule.CmdVelGeneratorStatus.OK.value + ", " +
+			"ERROR:" + SlrmModule.CmdVelGeneratorStatus.ERROR.value + ", " +
+			"END:" + SlrmModule.CmdVelGeneratorStatus.END.value);
+	    cmdVelGen.setExactSolution(exactSolution); // 特異点通過のための設定
+	    cmdVelGen.setLinearVelocityLimit(10.0); // 10 m/s
+	    cmdVelGen.setAngularVelocityLimit(2*Math.PI); // 2Pi rad/s
+	    cmdVelGen.setAngularGain(20.0); // 20 s^-1
+	    cmdVelGen.setLinearGain(20.0); // 20 s^-1
+	    const jointVelocityLimit
+		  = makeDoubleVector(Array(revolutes.length).fill(Math.PI*2.0)); // 2.0Pi/s // 20Pi rad/s
+	    cmdVelGen.setJointVelocityLimit(jointVelocityLimit); // ジョイント速度制限を設定
+	    jointVelocityLimit.delete();
+
+	    if (data.linkShapes) {
+	      CdModule.setJsLogLevel(2); // 3: info level, 4: debug level
+	      const {jointModelVector,
+		     jointModelsArray} = createJointModel(CdModule, revolutes);
+	      const basePosition = makeCdDoubleVector([0.0, 0.0, 0.0]);
+	      const baseOrientation = makeCdDoubleVector([1.0, 0.0, 0.0, 0.0]);
+	      gjkCd = new CdModule.CollisionDetection(jointModelVector,
+						      basePosition,
+						      baseOrientation);
+	      // jointModels.forEach(model => model.delete());
+	      jointModelVector.delete();
+	      jointModelsArray.forEach(model => model.delete());
+	      basePosition.delete();
+	      baseOrientation.delete();
+	    }
+	    if (gjkCd) {
+	      fetch(data.linkShapes)
+		.then(response => response.json())
+		.then(linkShapes => {
+		  if (linkShapes.length !== revolutes.length + 2) { // +2はbaseとend_effectorの分
+		    console.error('リンク形状定義の数がリンクモデルの数(+2)と一致しません。');
+		    return;
+		  }
+		  console.log('linkShapes.length: ', linkShapes.length);
+		  for (let i = 0; i < linkShapes.length; ++i) {
+		    // console.log(`リンク番号${i} のvector生成`);
+		    const shapeWasm = new CdModule.ConvexShapeVector();
+		    for (const convex of linkShapes[i]) {
+		      const convexWasm = makeConvexShape(convex);
+		      // console.log('size of convex js: ', convex.length);
+		      shapeWasm.push_back(convexWasm);
+		      convexWasm.delete();
+		    }
+		    gjkCd.addLinkShape(i, shapeWasm);
+		    shapeWasm.delete();
+		  }
+		  console.log('setting up of link shapes is finished');
+		  gjkCd.infoLinkShapes();
+		  const testPairs = [[0,2],[0,3],[0,4],[0,5],[0,6],[0,7],
+				     [1,3],[1,4],[1,5],[1,6],[1,7],
+				     [2,4],[2,5],[2,6],[2,7],
+				     [3,5],[3,6],[3,7]
+				    ];
+		  gjkCd.clearTestPairs();
+		  for (const pair of testPairs) {
+		    gjkCd.addTestPair(pair[0],pair[1]);
+		  }
+		})
+		.catch(error => {
+		  console.error('Error fetching or parsing SHAPE file:', error);
+		});
+	    }
+	    if (data.bridgeUrl) {
+	      console.log('recieve bridge URL: ', data.bridgeUrl);
+	      // bridge用のURLが付いているためbridgeが使える
+	      connectBridge(data.bridgeUrl);
+	    }
+	    // なにかの加減でオブジェクト生成に失敗した場合はここでエラーがthrownされる
+	    workerState = st.generatorReady;
+	    self.postMessage({type: 'generator_ready'});
+	  })
+	  .catch(error => {
+	    console.warn('Error fetching or parsing URDF modifier file:', error);
+	    console.warn('modifier file name:', data.modifier);
+	  });
       })
       .catch(error => {
 	console.error('Error fetching or parsing URDF.JSON file:', error);
@@ -428,6 +513,8 @@ self.onmessage = function(event) {
     break;
   }
 };
+
+
 
 // ******** main function ********
 function mainFunc(timeStep) {
