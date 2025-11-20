@@ -368,7 +368,7 @@ self.onmessage = function(event) {
 		.then(response => response.json())
 		.then(linkShapes => {
 		  if (linkShapes.length !== revolutes.length + 2) { // +2はbaseとend_effectorの分
-		    console.error('リンク形状定義の数がリンクモデルの数(+2)と一致しません。');
+		    console.error('干渉形状定義の数がジョイントの数(+2 effector必須)と一致しません。');
 		    return;
 		  }
 		  console.log('linkShapes.length: ', linkShapes.length);
@@ -644,15 +644,23 @@ function mainFunc(timeStep) {
   }
   if (result_status !== null && result_other !== null) {
     let limitFlag = Array(joints.length).fill(0);
+    let jointLimitExceed = false;
     for (let i=0; i<joints.length; i++) {
       if (joints[i] > jointUpperLimits[i]) {
 	limitFlag[i] = 1;
-	joints[i] = jointUpperLimits[i] - 0.001; // 
+	// joints[i] = jointUpperLimits[i] - 0.001; // 
+	prevJoints[i] = jointUpperLimits[i] - 0.001;
+	jointLimitExceed = true;
       }
       if (joints[i] < jointLowerLimits[i]) {
 	limitFlag[i] = -1;
-	joints[i] = jointLowerLimits[i] + 0.001; //
+	// joints[i] = jointLowerLimits[i] + 0.001; //
+	prevJoints[i]  = jointLowerLimits[i] + 0.001;
+	jointLimitExceed = true;
       }
+    }
+    if (jointLimitExceed) {
+      joints.set(prevJoints);
     }
     self.postMessage({type: 'joints', joints: [...joints]});
     self.postMessage({type: 'status', status: statusName[result_status.value],
