@@ -368,7 +368,10 @@ self.onmessage = function(event) {
 		.then(response => response.json())
 		.then(linkShapes => {
 		  if (linkShapes.length !== revolutes.length + 2) { // +2はbaseとend_effectorの分
-		    console.error('干渉形状定義の数がジョイントの数(+2 effector必須)と一致しません。');
+		    if (linkShapes.length !== 0)
+		      console.error('干渉形状定義の数', linkShapes.length,
+				    'がジョイントの数(+2 effector必須)', revolutes.length+2,
+				    'と一致しません。');
 		    return;
 		  }
 		  console.log('linkShapes.length: ', linkShapes.length);
@@ -386,14 +389,34 @@ self.onmessage = function(event) {
 		  }
 		  console.log('setting up of link shapes is finished');
 		  gjkCd.infoLinkShapes();
-		  const testPairs = [[0,2],[0,3],[0,4],[0,5],[0,6],[0,7],
-				     [1,3],[1,4],[1,5],[1,6],[1,7],
-				     [2,4],[2,5],[2,6],[2,7],
-				     [3,5],[3,6],[3,7]
-				    ];
-		  gjkCd.clearTestPairs();
-		  for (const pair of testPairs) {
-		    gjkCd.addTestPair(pair[0],pair[1]);
+		  // fetch test pairs from data.testPairs if exists
+		  if (!data.testPairs) {
+		    // const testPairs = [[0,2],[0,3],[0,4],[0,5],[0,6],[0,7],
+		    // 		       [1,3],[1,4],[1,5],[1,6],[1,7],
+		    // 		       [2,4],[2,5],[2,6],[2,7],
+		    // 		       [3,5],[3,6],[3,7]
+		    // 		      ];
+		    const testPairs = [];
+		    for (let i=0; i< linkShapes.length-4; i++) {
+		      for (let j=i+2; j<linkShapes.length; j++) {
+			testPairs.push([i,j]);
+		      }
+		    }
+		    console.log('using default test pairs: ', testPairs);
+		    gjkCd.clearTestPairs();
+		    for (const pair of testPairs) {
+		      gjkCd.addTestPair(pair[0],pair[1]);
+		    }
+		  } else {
+		    console.log('recieve test pairs from', data.testPairs);
+		    fetch(data.testPairs)
+		      .then(response => response.json())
+		      .then(testPairs => {
+			gjkCd.clearTestPairs();
+			for (const pair of testPairs) {
+			  gjkCd.addTestPair(pair[0],pair[1]);
+			}
+		      });
 		  }
 		})
 		.catch(error => {

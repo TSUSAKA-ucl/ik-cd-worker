@@ -23,16 +23,18 @@ export default function IkWorkerManager({robotName,
     console.log("workerRef.current: ", workerRef.current);
     workerRef.current.onmessage = (event) => {
       switch (event.data.type) {
-      case 'ready':
+      case 'ready': {
 	const initMsg = { type: 'init',
-			 filename: robotName +'/'+'urdf.json',
-			 modifier: robotName +'/'+'update.json',
-			 linkShapes: robotName +'/'+'shapes.json',
-			 bridgeUrl: topicBridgeWebSocketURL
+			  filename: robotName +'/'+'urdf.json',
+			  modifier: robotName +'/'+'update.json',
+			  linkShapes: robotName +'/'+'shapes.json',
+			  testPairs: robotName +'/'+'testPairs.json',
+			  bridgeUrl: topicBridgeWebSocketURL
 			};
 	// console.warn('XXX init msg',initMsg);
 	workerRef.current
 	  .postMessage(initMsg);
+      }
 	break;
       case 'generator_ready':
 	workerRef.current
