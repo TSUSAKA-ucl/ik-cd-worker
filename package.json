@@ -14,6 +14,7 @@
     "copy-wasm": "./scripts/copy-wasm.js"
   },
   "exports": {
+    "./ikWorker.js": "src/ikWorker.js",
     ".": "./src/IkWorkerManager.js"
   },
   "scripts": {
