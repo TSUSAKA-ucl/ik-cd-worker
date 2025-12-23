@@ -9,6 +9,7 @@
 // const workerLastStatus = workerData.current.status;
 // const workerLastPose = workerData.current.pose;
 export default function IkWorkerManager({robotName,
+					 entity,
 					 initialJoints,
 					 workerRef,
 					 workerData,
@@ -37,6 +38,10 @@ export default function IkWorkerManager({robotName,
       }
 	break;
       case 'generator_ready':
+	if (entity) {
+	  entity.ikWorkerReady = true;
+	  entity.emit('ik-worker-ready');
+	}
 	workerRef.current
 	  .postMessage({ type: 'set_exact_solution',
 			 exactSolution: false });

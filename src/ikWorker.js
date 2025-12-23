@@ -1,6 +1,7 @@
 import AFRAME from 'aframe';
 // const THREE = window.AFRAME.THREE;
 import IkWorkerManager from './IkWorkerManager.js';
+import { withObjReady } from './withObjReady.js';
 
 AFRAME.registerComponent('ik-worker', {
   schema: { type: 'array'}, // intial joint value
@@ -15,13 +16,26 @@ AFRAME.registerComponent('ik-worker', {
       const workerData = this.el.workerData;
       const initialJoints = this.data.map(parseFloat);
       // *** controller offset subscribe
-      const bridgeProtocol = location.protocol==='https:' ? 'wss:':'ws:';
-      const bridgePort = 9090;
+      // const bridgeProtocol = location.protocol==='https:' ? 'wss:':'ws:';
+      // const bridgePort = 9090;
       const topicBridgeWebSocketURL =
 	    // `${bridgeProtocol}//${location.hostname}:${bridgePort}`;
 	    null;
       console.warn('UUUUUUU call IkWorkerManager with model',this.el.model);
+      this.robotRegistryFunc = null;
+      this.el.addEventListener('ik-worker-ready', () => {
+	this.robotRegistryFunc = () => {
+	  const id = this.el.id;
+	  const robotRegistryComp = this.el.sceneEl.robotRegistryComp;
+	  robotRegistryComp.add(id, {worker: this.el.workerRef,
+				     workerData: this.el.workerData});
+	  console.log('Robot ', id, ' worker added:', this.el.workerRef);
+	  this.el.emit('ik-worker-start'); // what do i do next?
+	};
+	this.robotRegistryFunc();
+      });
       this.remove = IkWorkerManager({robotName: this.el.model,
+				     entity: this.el,
                                      initialJoints,
 		                     workerRef,
 		                     workerData,
@@ -29,26 +43,61 @@ AFRAME.registerComponent('ik-worker', {
       // This robot may be or may NOT be REGISTERED in 'robot-registry'
       // before the emission of 'robot-dom-ready' by urdfLoader2
       // Here, use the add function to register it in the registry.
-      const registerRobotFunc = () => { // 
-	const id = this.el.id;
-	const robotRegistryComp = this.el.sceneEl.robotRegistryComp;
-	console.log('#=======# id:',id, 'endLinkEl:',this.el.endLink);
-	robotRegistryComp.add(id, {worker: this.el.workerRef,
-				   workerData: this.el.workerData});
-	console.log('Robot ', id, ' worker added:', this.el.workerRef);
-	this.el.emit('ik-worker-start'); // what do i do next?
-      };
       // if (this.el.sceneEl.hasLoaded) {
-      if (this.el.model) {
-	registerRobotFunc();
-      } else {
-	// this.el.sceneEl.addEventListener('loaded', registerRobotFunc,
-	this.el.addEventListener('robot-dom-ready', registerRobotFunc,
-				 { once: true });
-      }
+      // if (this.el.model) {
+      // 	registerRobotFunc();
+      // } else {
+      // 	// this.el.sceneEl.addEventListener('loaded', registerRobotFunc,
+      // 	this.el.addEventListener('robot-dom-ready', registerRobotFunc,
+      // 				 { once: true });
+      // }
     }, {once: true});
   },
   remove:function() {
     // if (this?.remove) this.remove();
+  }
+});
+
+AFRAME.registerComponent('joint-weight', {
+  schema: {
+    override: { type: 'string', default: ''},
+  },
+  parseAndSetMap: function() {
+    this.map = {};
+    this.data.override.split(',').forEach( pairStr => {
+      const [jointName, weightStr] = pairStr.split(':');
+      const weight = parseFloat(weightStr);
+      if (jointName && !isNaN(weight)) {
+	if (typeof parseInt(jointName) === 'number'
+	    && !isNaN(parseInt(jointName))) {
+	  this.map[jointName] = weight;
+	} else {
+	  console.warn(`Invalid joint name for joint-weight: ${jointName}`);
+	}
+      }
+    });
+  },
+  init: function() {
+    this.parseAndSetMap();
+    console.warn('Initial joint-weight map:', this.map);
+    this.setJointWeight = (map) => {
+      if (this.el.workerRef?.current) {
+	Object.entries(map).forEach( ([jointName, weight]) => {
+	  console.warn(`Set joint weight: ${jointName} -> ${weight}`);
+	  const msg = { type: 'set_joint_weights',
+			jointNumber: parseInt(jointName),
+			jointWeight: weight };
+	  this.el.workerRef.current.postMessage(msg);
+	});
+      }
+    };
+    withObjReady(this.el, 'ik-worker-ready',
+		 this.el.ikWorkerReady,
+		 this.setJointWeight,
+		 this.map);
+  },
+  update: function() {
+    this.parseAndSetMap();
+    this.setJointWeight(this.map);
   }
 });

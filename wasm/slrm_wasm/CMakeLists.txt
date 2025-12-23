@@ -25,8 +25,15 @@ set_target_properties(slrm_module PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/../../public/wasm"
 )
 
+target_compile_options(slrm_module PRIVATE
+    -O3
+    -msimd128
+    -DNDEBUG
+)
 
 target_link_options(slrm_module PRIVATE
+  "-O3"
+  "-msimd128"
   "-sMODULARIZE=1"
   "-sEXPORT_ES6=1"
   "-sENVIRONMENT=web,worker"

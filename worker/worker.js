@@ -532,6 +532,20 @@ self.onmessage = function(event) {
       }
     }
     break;
+  case 'set_joint_weights':
+    console.warn('IIII enter set_joint_weights');
+    if (workerState === st.generatorReady || workerState === st.slrmReady) {
+      console.warn('IIII slrmReady in set_joint_weights:',data.jointNumber, data.jointWeight);
+      if (data.jointNumber !== undefined && data.jointWeight !== undefined) {
+	console.warn('IIII valid data in set_joint_weights :',
+		    data.jointNumber, data.jointWeight);
+	if (cmdVelGen.setJointWeight(data.jointNumber, data.jointWeight) !== true) {
+	  console.error('set_joint_weights: failed to set weight for joint number ',
+			data.jointNumber);
+	}
+      }
+    }
+    break;
   default:
     break;
   }
