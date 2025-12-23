@@ -533,14 +533,35 @@ self.onmessage = function(event) {
     }
     break;
   case 'set_joint_weights':
-    console.warn('IIII enter set_joint_weights');
     if (workerState === st.generatorReady || workerState === st.slrmReady) {
-      console.warn('IIII slrmReady in set_joint_weights:',data.jointNumber, data.jointWeight);
       if (data.jointNumber !== undefined && data.jointWeight !== undefined) {
-	console.warn('IIII valid data in set_joint_weights :',
-		    data.jointNumber, data.jointWeight);
 	if (cmdVelGen.setJointWeight(data.jointNumber, data.jointWeight) !== true) {
 	  console.error('set_joint_weights: failed to set weight for joint number ',
+			data.jointNumber);
+	}
+      }
+    }
+    break;
+  case 'clear_joint_desirable':
+    if (workerState === st.generatorReady || workerState === st.slrmReady) {
+      if (data.jointNumber !== undefined) {
+	if (cmdVelGen.setJointDesirable(data.jointNumber, false) !== true) {
+	  console.error('clear_joint_desirable: failed to clear desirable for joint number ',
+			data.jointNumber);
+	}
+      }
+    }
+    break;
+  case 'set_joint_desirable':
+    if (workerState === st.generatorReady || workerState === st.slrmReady) {
+      if (data.jointNumber !== undefined &&
+	  data.lower !== undefined && data.upper !== undefined &&
+	  data.gain !== undefined) {
+	if (cmdVelGen.setJointDesirable(data.jointNumber, true,
+					data.lower,
+					data.upper,
+					data.gain) !== true) {
+	  console.error('set_joint_desirable: failed to set desirable for joint number ',
 			data.jointNumber);
 	}
       }

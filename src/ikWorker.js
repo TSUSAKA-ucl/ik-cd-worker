@@ -101,3 +101,71 @@ AFRAME.registerComponent('joint-weight', {
     this.setJointWeight(this.map);
   }
 });
+
+AFRAME.registerComponent('joint-desirable', {
+  schema: {
+    upper: { type: 'string', default: ''},
+    lower: { type: 'string', default: ''},
+    gain: { type: 'string', default: ''},
+  },
+  parseJointMap: function (map, dataStr) {
+    dataStr.split(',').forEach( pairStr => {
+      const [name, value] = pairStr.split(':');
+      const valNum = parseFloat(value);
+      if (name && !isNaN(valNum)) {
+	map[name] = valNum;
+      } else {
+	console.error(`Invalid joint desirable setting: ${pairStr}`);
+      }
+    });
+  },
+  parseAndSetDesirable: function() {
+    this.desirable = {};
+    const upperMap = {};
+    const lowerMap = {};
+    const gainMap = {};
+    this.parseJointMap(upperMap, this.data.upper);
+    this.parseJointMap(lowerMap, this.data.lower);
+    this.parseJointMap(gainMap, this.data.gain);
+    Object.entries(gainMap).forEach( ([jointName, gain]) => {
+      const upper = upperMap[jointName] ? upperMap[jointName] : 2*Math.PI;
+      const lower = lowerMap[jointName] ? lowerMap[jointName] : -2*Math.PI;
+      this.desirable[jointName] = { upper, lower, gain };
+    });
+    Object.entries(upperMap).forEach( ([jointName, upper]) => {
+      if (!this.desirable[jointName]) {
+	console.warn(`Upper desirable without gain for joint: ${jointName} keep ignored.`);
+      }
+    });
+    Object.entries(lowerMap).forEach( ([jointName, lower]) => {
+      if (!this.desirable[jointName]) {
+	console.warn(`Lower desirable without gain for joint: ${jointName} keep ignored.`);
+      }
+    });
+  },
+  init: function() {
+    this.parseAndSetDesirable();
+    console.warn('Initial joint-desirable map:', this.desirable);
+    this.setJointDesirable = (desirable) => {
+      if (this.el.workerRef?.current) {
+	Object.entries(desirable).forEach( ([jointName, descObj]) => {
+	  console.warn(`Set joint desirable: ${jointName} ->`, descObj);
+	  const msg = { type: 'set_joint_desirable',
+			jointNumber: parseInt(jointName),
+			upper: descObj.upper,
+			lower: descObj.lower,
+			gain: descObj.gain };
+	  this.el.workerRef.current.postMessage(msg);
+	});
+      }
+    };
+    withObjReady(this.el, 'ik-worker-ready',
+		 this.el.ikWorkerReady,
+		 this.setJointDesirable,
+		 this.desirable);
+  },
+  update: function() {
+    this.parseAndSetDesirable();
+    this.setJointDesirable(this.desirable);
+  }
+});
