@@ -553,10 +553,15 @@ self.onmessage = function(event) {
     }
     break;
   case 'set_joint_desirable':
+    console.log('in worker, set_joint_desirable called:', data);
     if (workerState === st.generatorReady || workerState === st.slrmReady) {
       if (data.jointNumber !== undefined &&
 	  data.lower !== undefined && data.upper !== undefined &&
 	  data.gain !== undefined) {
+	console.log('in worker, set_joint_desirable: jointNumber=', data.jointNumber,
+		    ' lower=', data.lower,
+		    ' upper=', data.upper,
+		    ' gain=', data.gain);
 	if (cmdVelGen.setJointDesirable(data.jointNumber, true,
 					data.lower,
 					data.upper,

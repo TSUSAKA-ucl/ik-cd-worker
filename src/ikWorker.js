@@ -21,7 +21,7 @@ AFRAME.registerComponent('ik-worker', {
       const topicBridgeWebSocketURL =
 	    // `${bridgeProtocol}//${location.hostname}:${bridgePort}`;
 	    null;
-      console.warn('UUUUUUU call IkWorkerManager with model',this.el.model);
+      console.log('UUUUUUU call IkWorkerManager with model',this.el.model);
       this.robotRegistryFunc = null;
       this.el.addEventListener('ik-worker-ready', () => {
 	this.robotRegistryFunc = () => {
@@ -34,12 +34,12 @@ AFRAME.registerComponent('ik-worker', {
 	};
 	this.robotRegistryFunc();
       });
-      this.remove = IkWorkerManager({robotName: this.el.model,
-				     entity: this.el,
-                                     initialJoints,
-		                     workerRef,
-		                     workerData,
-				     topicBridgeWebSocketURL});
+      this.removeWorker = IkWorkerManager({robotName: this.el.model,
+					   entity: this.el,
+					   initialJoints,
+					   workerRef,
+					   workerData,
+					   topicBridgeWebSocketURL});
       // This robot may be or may NOT be REGISTERED in 'robot-registry'
       // before the emission of 'robot-dom-ready' by urdfLoader2
       // Here, use the add function to register it in the registry.
@@ -79,11 +79,9 @@ AFRAME.registerComponent('joint-weight', {
   },
   init: function() {
     this.parseAndSetMap();
-    console.warn('Initial joint-weight map:', this.map);
     this.setJointWeight = (map) => {
       if (this.el.workerRef?.current) {
 	Object.entries(map).forEach( ([jointName, weight]) => {
-	  console.warn(`Set joint weight: ${jointName} -> ${weight}`);
 	  const msg = { type: 'set_joint_weights',
 			jointNumber: parseInt(jointName),
 			jointWeight: weight };
@@ -145,16 +143,18 @@ AFRAME.registerComponent('joint-desirable', {
   },
   init: function() {
     this.parseAndSetDesirable();
-    console.warn('Initial joint-desirable map:', this.desirable);
     this.setJointDesirable = (desirable) => {
       if (this.el.workerRef?.current) {
+	const loglevel = { type: 'set_slrm_loglevel',
+			   logLevel: 4 };
+	this.el.workerRef.current.postMessage(loglevel);
 	Object.entries(desirable).forEach( ([jointName, descObj]) => {
-	  console.warn(`Set joint desirable: ${jointName} ->`, descObj);
 	  const msg = { type: 'set_joint_desirable',
 			jointNumber: parseInt(jointName),
 			upper: descObj.upper,
 			lower: descObj.lower,
 			gain: descObj.gain };
+	  console.log('in AF component desirable postMessage:',msg);
 	  this.el.workerRef.current.postMessage(msg);
 	});
       }
