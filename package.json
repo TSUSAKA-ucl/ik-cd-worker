@@ -1,7 +1,6 @@
 {
   "name": "@ucl-nuee/ik-cd-worker",
-  "repository": "https://github.com/TSUSAKA-ucl/ik-cd-worker.git",
-  "version": "0.2.13",
+  "version": "0.2.16",
   "files": [
     "public/wasm/cd_module.js",
     "public/wasm/slrm_module.js",
@@ -11,12 +10,12 @@
     "scripts/copy-wasm.js",
     "src/IkWorkerManager.js"
   ],
+  "type": "module",
   "bin": {
     "copy-wasm": "./scripts/copy-wasm.js"
   },
   "exports": {
-    "./ikWorker.js": "src/ikWorker.js",
-    ".": "./src/IkWorkerManager.js"
+    "./IkWorkerManager.js": "./src/IkWorkerManager.js"
   },
   "scripts": {
     "build": "vite build",

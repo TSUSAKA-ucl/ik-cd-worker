@@ -20,6 +20,10 @@ add_executable(slrm_module
     ${CMAKE_SOURCE_DIR}/moveit_jacobian/src/bindings.cpp
 )
 
+add_custom_command(TARGET slrm_module PRE_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_SOURCE_DIR}/../../public/wasm"
+    COMMENT "Creating output directory..."
+)
 set_target_properties(slrm_module PROPERTIES
     OUTPUT_NAME "slrm_module"
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/../../public/wasm"

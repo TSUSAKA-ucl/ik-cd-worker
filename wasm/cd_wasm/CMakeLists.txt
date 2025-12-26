@@ -22,22 +22,29 @@ target_include_directories(cd_module
   PUBLIC ${CMAKE_SOURCE_DIR}/../slrm_wasm/moveit_jacobian/src
 )
 
+add_custom_command(TARGET cd_module PRE_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_SOURCE_DIR}/../../public/wasm"
+    COMMENT "Creating output directory..."
+)
 set_target_properties(cd_module PROPERTIES
   OUTPUT_NAME "cd_module"
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/../../public/wasm"
 )
 
-# target_compile_options(cd_module PRIVATE
-#     "-sMODULARIZE=1"
-#     "-sWASM=1"
-# )
+
+target_compile_options(cd_module PRIVATE
+    -O3
+    -msimd128
+    -DNDEBUG
+)
 
 target_link_options(cd_module PRIVATE
+  "-O3"
+  "-msimd128"
   "-sMODULARIZE=1"
   "-sEXPORT_ES6=1"
   "-sENVIRONMENT=web,worker,node"
   #  "-sEXPORT_NAME=CdModule"
-  #  "-sENVIRONMENT=web"
   "-sWASM=1"
   "--bind"
 )

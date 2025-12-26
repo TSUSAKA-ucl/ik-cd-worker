@@ -14,8 +14,6 @@ export default defineConfig({
     emptyOutDir: false, // 既存の public を消さない
     rollupOptions: {
       external: [
-	'/wasm/slrm_module.js',
-	'/wasm/cd_module.js',
       ]
     }
   },
