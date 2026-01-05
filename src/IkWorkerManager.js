@@ -40,7 +40,7 @@ export default function IkWorkerManager({robotName,
       case 'generator_ready':
 	if (entity) {
 	  entity.ikWorkerReady = true;
-	  entity.emit('ik-worker-ready');
+	  entity.emit('ik-worker-ready', null, false);
 	}
 	workerRef.current
 	  .postMessage({ type: 'set_exact_solution',

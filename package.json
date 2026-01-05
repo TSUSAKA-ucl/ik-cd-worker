@@ -1,6 +1,6 @@
 {
   "name": "@ucl-nuee/ik-cd-worker",
-  "version": "0.2.16",
+  "version": "0.2.17",
   "files": [
     "public/wasm/cd_module.js",
     "public/wasm/slrm_module.js",
@@ -23,13 +23,13 @@
     "pack": "pnpm pack"
   },
   "peerDependencies": {
-    "aframe": "^1.6",
+    "aframe": "^1.7.1",
     "@msgpack/msgpack": "^3.1.2"
   },
   "devDependencies": {
     "@eslint/js": "^9.30.1",
     "eslint": "^9.30.1",
     "globals": "^16.3.0",
-    "vite": "^5.0.0"
+    "vite": "^7.1.2"
   }
 }
