@@ -1,6 +1,6 @@
 {
   "name": "@ucl-nuee/ik-cd-worker",
-  "version": "0.2.18",
+  "version": "0.2.19",
   "files": [
     "public/wasm/cd_module.js",
     "public/wasm/slrm_module.js",

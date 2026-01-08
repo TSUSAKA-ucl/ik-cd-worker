@@ -21,12 +21,12 @@ const sst = Object.freeze({
 })
 let workerState = st.initializing; // worker state
 let subState = sst.dormant;  // slrm & jointRewinder state
-console.log('Now intended to import ModuleFactory');
+console.debug('Now intended to import ModuleFactory');
 // import ModuleFactory from '/wasm/slrm_module.js';
 const ModuleFactory = await import('/wasm/slrm_module.js');
 const CdModuleFactory = await import('/wasm/cd_module.js');
 console.log('ModuleFactory: ', ModuleFactory);
-console.log('ModuleFactory.default type:', typeof ModuleFactory.default);
+console.debug('ModuleFactory.default type:', typeof ModuleFactory.default);
 if (typeof ModuleFactory.default !== 'function') {
   console.error('ModuleFactory.default is not a function:', ModuleFactory.default);
   throw new Error('ModuleFactory.default is not a valid function');
@@ -233,7 +233,7 @@ function sortJointsByHierarchy(urdfData) {
 function updateLeaves(a, b) {
   for (const key in b) {
     if (!(key in a)) {
-      console.warn('key in update.json:',key,' ignored');
+      console.debug('key in update.json:',key,' ignored');
       continue; // aに存在しないキーは無視
     }
     const bVal = b[key];
@@ -257,7 +257,7 @@ function updateLeaves(a, b) {
 
 
 // ******** worker message handler ********
-console.log('now setting onmessage')
+console.debug('now setting onmessage')
 self.onmessage = function(event) {
   const data = event.data;
   switch (data.type) {
@@ -314,10 +314,10 @@ self.onmessage = function(event) {
 	    const revolutes = urdfData.filter(obj => obj.$.type === 'revolute');
 	    const {jointModelVector,
 		   jointModelsArray} = createJointModel(SlrmModule, revolutes);
-	    console.log('type of SlrmModule.CmdVelGen: '
-			+ typeof SlrmModule.CmdVelGenerator);
+	    console.debug('type of SlrmModule.CmdVelGen: '
+			  + typeof SlrmModule.CmdVelGenerator);
 	    cmdVelGen = new SlrmModule.CmdVelGenerator(jointModelVector);
-	    console.log("type of jointModels is ", typeof jointModels);
+	    // console.log("type of jointModels is ", typeof jointModels);
 	    jointModelsArray.forEach(model => model.delete());
 	    jointModelVector.delete();
 	    if (cmdVelGen === null || cmdVelGen === undefined) {
