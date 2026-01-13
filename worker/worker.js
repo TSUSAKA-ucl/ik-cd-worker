@@ -339,12 +339,12 @@ self.onmessage = function(event) {
 			"ERROR:" + SlrmModule.CmdVelGeneratorStatus.ERROR.value + ", " +
 			"END:" + SlrmModule.CmdVelGeneratorStatus.END.value);
 	    cmdVelGen.setExactSolution(exactSolution); // 特異点通過のための設定
-	    cmdVelGen.setLinearVelocityLimit(10.0); // 10 m/s
-	    cmdVelGen.setAngularVelocityLimit(2*Math.PI); // 2Pi rad/s
-	    cmdVelGen.setAngularGain(20.0); // 20 s^-1
-	    cmdVelGen.setLinearGain(20.0); // 20 s^-1
+	    cmdVelGen.setLinearVelocityLimit(100.0); // 10 m/s
+	    cmdVelGen.setAngularVelocityLimit(20*Math.PI); // 2Pi rad/s
+	    cmdVelGen.setAngularGain(100.0); // 20 s^-1
+	    cmdVelGen.setLinearGain(100.0); // 20 s^-1
 	    const jointVelocityLimit
-		  = makeDoubleVector(Array(revolutes.length).fill(Math.PI*2.0)); // 2.0Pi/s // 20Pi rad/s
+		  = makeDoubleVector(Array(revolutes.length).fill(Math.PI*20.0)); // 2.0Pi/s // 20Pi rad/s
 	    cmdVelGen.setJointVelocityLimit(jointVelocityLimit); // ジョイント速度制限を設定
 	    jointVelocityLimit.delete();
 
@@ -569,6 +569,20 @@ self.onmessage = function(event) {
 	  console.error('set_joint_desirable: failed to set desirable for joint number ',
 			data.jointNumber);
 	}
+      }
+    }
+    break;
+  case 'set_joint_velocity_limit':
+    if (workerState === st.generatorReady || workerState === st.slrmReady) {
+      if (data.velocityLimit !== undefined) {
+	const jointVelocityLimit
+	      = makeDoubleVectorG(data.velocityLimit);
+	if (cmdVelGen.setJointVelocityLimitSingle(jointVelocityLimit) !== true) {
+	  console.error('set_joint_velocity_limit: failed to set joint velocity limit');
+	}
+	jointVelocityLimit.delete();
+      } else {
+	console.error('set_joint_velocity_limit: velocityLimit is undefined');
       }
     }
     break;
