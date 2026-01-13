@@ -339,12 +339,12 @@ self.onmessage = function(event) {
 			"ERROR:" + SlrmModule.CmdVelGeneratorStatus.ERROR.value + ", " +
 			"END:" + SlrmModule.CmdVelGeneratorStatus.END.value);
 	    cmdVelGen.setExactSolution(exactSolution); // 特異点通過のための設定
-	    cmdVelGen.setLinearVelocityLimit(100.0); // 10 m/s
-	    cmdVelGen.setAngularVelocityLimit(20*Math.PI); // 2Pi rad/s
+	    cmdVelGen.setLinearVelocityLimit(200.0); // 10 m/s
+	    cmdVelGen.setAngularVelocityLimit(40*Math.PI); // 2Pi rad/s
 	    cmdVelGen.setAngularGain(100.0); // 20 s^-1
 	    cmdVelGen.setLinearGain(100.0); // 20 s^-1
 	    const jointVelocityLimit
-		  = makeDoubleVector(Array(revolutes.length).fill(Math.PI*20.0)); // 2.0Pi/s // 20Pi rad/s
+		  = makeDoubleVector(Array(revolutes.length).fill(Math.PI*100.0)); // 2.0Pi/s // 20Pi rad/s
 	    cmdVelGen.setJointVelocityLimit(jointVelocityLimit); // ジョイント速度制限を設定
 	    jointVelocityLimit.delete();
 
@@ -597,6 +597,7 @@ self.onmessage = function(event) {
 function mainFunc(timeStep) {
   let result_status = null;
   let result_other = null;
+  let result_collision = [];
   let position = null;
   let quaternion = null;
   // if (!result_status)
@@ -691,8 +692,14 @@ function mainFunc(timeStep) {
 	  gjkCd.calcFk(jointPositions);
 	  jointPositions.delete();
 	  const resultPairs = gjkCd.testCollisionPairs();
+	  // struct UnsignedPair { unsigned int first, second; };
+	  // type of resultPairs is std::vector<UnsignedPair>
 	  if (resultPairs.size() !== 0) {
 	    joints.set(prevJoints);
+	    for (let i=0; i<resultPairs.size(); i++) {
+	      const pair = resultPairs.get(i);
+	      result_collision.push([pair.first, pair.second]);
+	    }
 	  }
 	}
 	break;
@@ -745,7 +752,9 @@ function mainFunc(timeStep) {
 		      condition_number: result_other.condition_number,
 		      manipulability: result_other.manipulability,
 		      sensitivity_scale: result_other.sensitivity_scale,
-		      limit_flag: limitFlag});
+		      limit_flag: limitFlag,
+		      collisions: result_collision
+		     });
     self.postMessage({type: 'pose',
 		      position: position,
 		      quaternion: quaternion,
