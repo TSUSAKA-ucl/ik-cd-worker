@@ -344,7 +344,7 @@ self.onmessage = function(event) {
 	    cmdVelGen.setAngularGain(100.0); // 20 s^-1
 	    cmdVelGen.setLinearGain(100.0); // 20 s^-1
 	    const jointVelocityLimit
-		  = makeDoubleVector(Array(revolutes.length).fill(Math.PI*100.0)); // 2.0Pi/s // 20Pi rad/s
+		  = makeDoubleVector(Array(revolutes.length).fill(Math.PI*2.0)); // 2.0Pi/s // 20Pi rad/s
 	    cmdVelGen.setJointVelocityLimit(jointVelocityLimit); // ジョイント速度制限を設定
 	    jointVelocityLimit.delete();
 
@@ -535,8 +535,22 @@ self.onmessage = function(event) {
   case 'set_joint_weights':
     if (workerState === st.generatorReady || workerState === st.slrmReady) {
       if (data.jointNumber !== undefined && data.jointWeight !== undefined) {
-	if (cmdVelGen.setJointWeight(data.jointNumber, data.jointWeight) !== true) {
+	if (cmdVelGen?.setJointWeight &&
+	    cmdVelGen.setJointWeight(data.jointNumber, data.jointWeight) !== true) {
 	  console.error('set_joint_weights: failed to set weight for joint number ',
+			data.jointNumber);
+	}
+      }
+    }
+    break;
+  case 'set_joint_desirable_vlimit':
+    if (workerState === st.generatorReady || workerState === st.slrmReady) {
+      if (data.jointNumber === undefined) { data.jointNumber = -1; } // 全関節に適用
+      if (data.velocityLimit !== undefined) {
+	if (cmdVelGen?.setJointDesirableVelocityLimit &&
+	    cmdVelGen.setJointDesirableVelocityLimit(data.jointNumber,
+						     data.velocityLimit) !== true) {
+	  console.error('set_joint_desirable_vlimit: failed to set desirable velocity limit for joint number ',
 			data.jointNumber);
 	}
       }
@@ -545,7 +559,8 @@ self.onmessage = function(event) {
   case 'clear_joint_desirable':
     if (workerState === st.generatorReady || workerState === st.slrmReady) {
       if (data.jointNumber !== undefined) {
-	if (cmdVelGen.setJointDesirable(data.jointNumber, false) !== true) {
+	if (cmdVelGen?.setJointDesirable &&
+	    cmdVelGen.setJointDesirable(data.jointNumber, false) !== true) {
 	  console.error('clear_joint_desirable: failed to clear desirable for joint number ',
 			data.jointNumber);
 	}
@@ -562,7 +577,8 @@ self.onmessage = function(event) {
 		    ' lower=', data.lower,
 		    ' upper=', data.upper,
 		    ' gain=', data.gain);
-	if (cmdVelGen.setJointDesirable(data.jointNumber, true,
+	if (cmdVelGen?.setJointDesirable &&
+	    cmdVelGen.setJointDesirable(data.jointNumber, true,
 					data.lower,
 					data.upper,
 					data.gain) !== true) {
