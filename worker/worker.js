@@ -16,11 +16,40 @@ const st = Object.freeze({
 const sst = Object.freeze({
   dormant: 1,
   converged: 2,
-  moving: 3,
+  moving: 3,	// Cartesian mode
   rewinding: 4,
+  jMoving: 5, // joint space mode
 })
 let workerState = st.initializing; // worker state
 let subState = sst.dormant;  // slrm & jointRewinder state
+
+// ******** definitions of global variables ********
+const timeInterval = 4; // time step for simulation in milliseconds
+const logInterval = 0n/BigInt(timeInterval); // log interval in BigInt
+let endLinkPoseVec = []; // endLinkPoseの値を受け取るベクトル
+let controllerTfVec = null; // controllerから受け取った目標位置姿勢ベクトル
+let controllerJointVec = null; // controllerから受け取った目標ジョイントベクトル
+let counter = 0n;
+let jMoveGain = 10.0; // joint move command gain
+let jMoveVelocityLimit = Math.PI/3.0; // joint move command velocity limit rad/s
+let initialJoints = null;
+let jointRewinder = null;
+let joints = null; // joint position vector. size is 6,7 or 8
+let prevJoints = null; // 前回のジョイントポジション
+let velocities = null;
+let logPrevJoints = null; // ログ出力用の前回ジョイントポジション
+const jointUpperLimits = [];
+const jointLowerLimits = [];
+let cmdVelGen = null; // コマンド速度生成器WASMオブジェクト
+let gjkCd = null; // collision detection WASMオブジェクト
+let makeDoubleVectorG = null; // helper function for DoubleVector
+let makeCdDoubleVectorG = null;
+// let newDestinationFlag = false; // 新しいdestinationが来たかどうか
+let exactSolution = false; // singularity通過のための設定
+
+// *************************************
+// ******** WASM module loading ********
+// *************************************
 console.debug('Now intended to import ModuleFactory');
 // import ModuleFactory from '/wasm/slrm_module.js';
 const ModuleFactory = await import('/wasm/slrm_module.js');
@@ -41,33 +70,19 @@ if (!CdModule) {
   console.error('Failed to load CdModule');
   throw new Error('CdModule could not be loaded');
 }
-const statusName = {
-  [SlrmModule.CmdVelGeneratorStatus.OK.value]: 'OK',
-  [SlrmModule.CmdVelGeneratorStatus.ERROR.value]: 'ERROR',
-  [SlrmModule.CmdVelGeneratorStatus.END.value]: 'END',
-  [SlrmModule.CmdVelGeneratorStatus.SINGULARITY.value]: 'SINGULARITY',
-  [SlrmModule.CmdVelGeneratorStatus.REWIND.value]: 'REWIND',
-};
 
-// ******** definitions of global variables ********
-const timeInterval = 4; // time step for simulation in milliseconds
-const logInterval = 0n/BigInt(timeInterval); // log interval in BigInt
-let controllerTfVec = null; // endLinkPoseの値を受け取るベクトル
-let counter = 0n;
-let initialJoints = null;
-let jointRewinder = null;
-let joints = null; // joint position vector. size is 6,7 or 8
-let prevJoints = null; // 前回のジョイントポジション
-let velocities = null;
-let logPrevJoints = null; // ログ出力用の前回ジョイントポジション
-const jointUpperLimits = [];
-const jointLowerLimits = [];
-let cmdVelGen = null; // コマンド速度生成器WASMオブジェクト
-let gjkCd = null; // collision detection WASMオブジェクト
-let makeDoubleVectorG = null; // helper function for DoubleVector
-let makeCdDoubleVectorG = null;
-// let newDestinationFlag = false; // 新しいdestinationが来たかどうか
-let exactSolution = false; // singularity通過のための設定
+const StatusOK = SlrmModule.CmdVelGeneratorStatus.OK.value;
+const StatusERROR = SlrmModule.CmdVelGeneratorStatus.ERROR.value;
+const StatusEND = SlrmModule.CmdVelGeneratorStatus.END.value;
+const StatusSINGULARITY = SlrmModule.CmdVelGeneratorStatus.SINGULARITY.value;
+const StatusREWIND = SlrmModule.CmdVelGeneratorStatus.REWIND.value;
+const statusName = {
+  [StatusOK]: 'OK',
+  [StatusERROR]: 'ERROR',
+  [StatusEND]: 'END',
+  [StatusSINGULARITY]: 'SINGULARITY',
+  [StatusREWIND]: 'REWIND',
+};
 
 // ******** helper functions ********
 // SlrmModuleを閉じ込めて、その関連オブジェクトを生成するhelper関数群
@@ -335,9 +350,9 @@ self.onmessage = function(event) {
 	    });
 	    console.log('jointLimits: ', jointUpperLimits, jointLowerLimits);
 	    console.log('Status Definitions: ' +
-			"OK:" + SlrmModule.CmdVelGeneratorStatus.OK.value + ", " +
-			"ERROR:" + SlrmModule.CmdVelGeneratorStatus.ERROR.value + ", " +
-			"END:" + SlrmModule.CmdVelGeneratorStatus.END.value);
+			"OK:" + StatusOK + ", " +
+			"ERROR:" + StatusERROR + ", " +
+			"END:" + StatusEND);
 	    cmdVelGen.setExactSolution(exactSolution); // 特異点通過のための設定
 	    cmdVelGen.setLinearVelocityLimit(200.0); // 10 m/s
 	    cmdVelGen.setAngularVelocityLimit(40*Math.PI); // 2Pi rad/s
@@ -466,13 +481,15 @@ self.onmessage = function(event) {
       }
       jointRewinder.forEach((der,ix)=>{der.reset(); der.setX0(initialJoints[ix])});
       workerState = st.slrmReady;
-      controllerTfVec = []; // 現在値をゴールにしてcalcVelocityPQを1回実行する
+      endLinkPoseVec = []; // 現在値をゴールにしてcalcVelocityPQを1回実行する
       subState = sst.moving; // 目標位置に移動中
       // subState = sst.converged;
       console.log('Worker state changed to slrmReady');
     }
   } break;
   case 'destination': if (workerState === st.slrmReady &&
+			  subState !== sst.rewinding &&
+			  subState !== sst.jMoving &&
 			  data.endLinkPose ) {
     // データの受信処理
     //newDestinationFlag = true; // 新しいdestinationが来た
@@ -483,6 +500,24 @@ self.onmessage = function(event) {
     // 		+ controllerTfVec[14].toFixed(3));
     subState = sst.moving;
   } break;
+  case 'set_joint_targets':
+    if (data.jointTargets &&
+	workerState === st.slrmReady &&
+	subState !== sst.rewinding &&
+	subState !== sst.moving ) {
+      if (data.jointTargets.length === joints.length) {
+	controllerJointVec = [...data.jointTargets];
+	subState = sst.jMoving;
+      } else {
+	console.error('set_joint_targets: jointTargets length mismatch:',
+		      data.jointTargets.length, 'vs', joints.length);
+      }
+    } else {
+      console.warn('Ignored set_joint_targets command.');
+      console.warn('set_joint_targets: invalid state or missing jointTargets');
+      console.warn('  workerState:', workerState, ' subState:', subState);
+    }
+    break;
   case 'slow_rewind':
     if (workerState === st.slrmReady &&
 	joints && initialJoints && jointRewinder) {
@@ -513,7 +548,7 @@ self.onmessage = function(event) {
 	endEffectorPosition.delete();
 	const tmp = subState;
 	subState = sst.moving; // アームをee移動分だけ動かすために一回呼ぶ
-	controllerTfVec = []; // 現在値をゴールにしてcalcVelocityPQを1回実行する
+	endLinkPoseVec = []; // 現在値をゴールにしてcalcVelocityPQを1回実行する
 	mainFunc(0); // ここでeeの位置を更新
 	subState = tmp; // 元の状態に戻す
       }
@@ -608,29 +643,90 @@ self.onmessage = function(event) {
 };
 
 
+// ******** collision detection function ********
+function detectCollisions(joints, result_collision) {
+  if (gjkCd) {
+    const jointPositions = makeCdDoubleVectorG(joints);
+    gjkCd.calcFk(jointPositions);
+    jointPositions.delete();
+    const resultPairs = gjkCd.testCollisionPairs();
+    // struct UnsignedPair { unsigned int first, second; };
+    // type of resultPairs is std::vector<UnsignedPair>
+    //register_vector<in_house::UnsignedPair>("UnsignedPairVector")
+    const count = resultPairs.size();
+    for (let i=0; i<count; i++) {
+      const pair = resultPairs.get(i);
+      result_collision.push([pair.first, pair.second]);
+    }
+    resultPairs.delete();
+    return count;
+  }
+  return 0;
+}
 
 // ******** main function ********
 function mainFunc(timeStep) {
-  let result_status = null;
+  let result_status_value = null;
   let result_other = null;
   let result_collision = [];
   let position = null;
   let quaternion = null;
-  // if (!result_status)
-  //   result_status = {value: SlrmModule.CmdVelGeneratorStatus.OK.value};
+  // if (!result_status_value)
+  //   result_status_value = StatusOK; //{value: StatusOK};
   // if (!result_othre)
   //   result_other = {condition_number: 0,
   // 		    manipulability: 0,
   // 		    sensitivity_scale: 0};
   if (!cmdVelGen || !joints) return;
   if (workerState === st.slrmReady &&
-      (subState === sst.moving || subState === sst.rewinding)) {
-    if (subState === sst.rewinding) {
-      const res = jointRewinder.map((der,i)=>
-	der.calcNext(joints[i], velocities[i], timeStep));
+      (subState === sst.moving ||
+       subState === sst.jMoving ||
+       subState === sst.rewinding)) {
+    if (subState === sst.moving && controllerTfVec) {
+      endLinkPoseVec = controllerTfVec.slice();
+    } else if (subState === sst.jMoving) {
+      if (controllerJointVec &&
+	  controllerJointVec.length === joints.length) {
+	let allReached = true;
+	for (let i=0; i<joints.length; i++) {
+	  let jointVel = jMoveGain * (controllerJointVec[i] - joints[i]);
+	  if (jointVel < -jMoveVelocityLimit) {
+	    jointVel = -jMoveVelocityLimit;
+	  } else if (jointVel > jMoveVelocityLimit) {
+	    jointVel = jMoveVelocityLimit;
+	  }
+	  velocities[i] = jointVel;
+	  prevJoints.set(joints);
+	  joints[i] = joints[i] + velocities[i]* timeStep;
+	  let diff = controllerJointVec[i] - joints[i];
+	  if (diff < -1e-2 || diff > 1e-2) {
+	    allReached = false;
+	  }
+	}
+	if (allReached) {
+	  subState = sst.converged;
+	}
+	if (detectCollisions(joints, result_collision) !== 0) {
+	  joints.set(prevJoints); // 衝突したら前の状態に戻す
+	  subState = sst.converged; // 衝突したら動作終了
+	}
+	endLinkPoseVec = []; // 現在値をゴールにしてcalcVelocityPQを1回実行する
+      }
+    } else if (subState === sst.rewinding) {
+	const res = jointRewinder.map((der,i)=>
+	  der.calcNext(joints[i], velocities[i], timeStep));
+      let allReached = true;
+      prevJoints.set(joints);
       for (let i=0; i<joints.length; i++) {
+	let diff = res[i].x - joints[i];
 	joints[i] = res[i].x;
 	velocities[i] = res[i].v;
+	if (diff < -1e-2 || diff > 1e-2) {
+	  allReached = false;	// res[i].constrainedは使わない
+	}
+      }
+      if (allReached) {
+	subState = sst.converged;
       }
       if (socket) { // デバッグ用出力
 	const msg = {
@@ -654,28 +750,21 @@ function mainFunc(timeStep) {
 	  }
 	}
       }
-      controllerTfVec = []; // 現在値をゴールにしてcalcVelocityPQを1回実行する
-    } else if (subState === sst.converged) {
-      velocities.fill(0); // sst.rewindingから出た時に必要
-    }
-    if (controllerTfVec === null) {
-      // console.warn('controllerTfVec is not ready yet.');
-      return;
+      endLinkPoseVec = []; // 現在値をゴールにしてcalcVelocityPQを1回実行する
     }
     const jointVec = makeDoubleVectorG(joints);
-    const endLinkPose = makeDoubleVectorG(controllerTfVec);
+    const endLinkPose = makeDoubleVectorG(endLinkPoseVec);
     const result = cmdVelGen.calcVelocityPQ(jointVec, endLinkPose);
     jointVec.delete();
     endLinkPose.delete();
-    // velocities = new Float64Array(result.joint_velocities.size());
-    // velocities = velocities.map((_, idx) => result.joint_velocities.get(idx));
-    if (subState !== sst.rewinding) {
+    if (subState === sst.moving) {
       for (let i=0; i<velocities.length; i++) {
 	velocities[i] = result.joint_velocities.get(i);
+	// endLinkPose.lengthが0の場合、velocitiesは0が約束されている
       }
     }
     result.joint_velocities.delete();
-    result_status = result.status;
+    result_status_value = result.status.value;
     result_other = result.other;
     if (!position || !quaternion) {
       position = new Float64Array(3);
@@ -692,48 +781,36 @@ function mainFunc(timeStep) {
     result.quaternion.delete();
     // console.log('status: ', result.status.value);
     if (subState === sst.rewinding &&
-	result.status.value !== SlrmModule.CmdVelGeneratorStatus.END.value &&
-	result.status.value !== SlrmModule.CmdVelGeneratorStatus.OK.value) {
+	result.status.value !== StatusEND &&
+	result.status.value !== StatusOK) {
       console.warn('CmdVelGenerator returned status other than END or OK during rewinding:', statusName[result.status.value]);
     }
     if (subState === sst.moving) {
       switch (result.status.value) {
-      case SlrmModule.CmdVelGeneratorStatus.OK.value:
+      case StatusOK:
 	prevJoints.set(joints);
 	for (let i=0; i<joints.length; i++) {
 	  joints[i] = joints[i] + velocities[i]* timeStep;
 	}
-	if (gjkCd) {
-	  const jointPositions = makeCdDoubleVectorG(joints);
-	  gjkCd.calcFk(jointPositions);
-	  jointPositions.delete();
-	  const resultPairs = gjkCd.testCollisionPairs();
-	  // struct UnsignedPair { unsigned int first, second; };
-	  // type of resultPairs is std::vector<UnsignedPair>
-	  if (resultPairs.size() !== 0) {
-	    joints.set(prevJoints);
-	    for (let i=0; i<resultPairs.size(); i++) {
-	      const pair = resultPairs.get(i);
-	      result_collision.push([pair.first, pair.second]);
-	    }
-	  }
+	if (detectCollisions(joints, result_collision) !== 0) {
+	  joints.set(prevJoints); // 衝突したら前の状態に戻す
 	}
 	break;
-      case SlrmModule.CmdVelGeneratorStatus.END.value:
+      case StatusEND:
 	// 目標位置に到達した場合の処理
 	// cmdPoseExists = false; 
 	subState = sst.converged;
 	break;
-      case SlrmModule.CmdVelGeneratorStatus.SINGULARITY.value:
+      case StatusSINGULARITY:
 	// 現状のCmdVelGeneratorではこの状態は発生せずREWINDに変わる
 	// cmdPoseExists = false; // cmdPoseが存在しない
 	console.error('CmdVelGenerator returned SINGULARITY status');
 	break;
-      case SlrmModule.CmdVelGeneratorStatus.REWIND.value:
+      case StatusREWIND:
 	joints.set(prevJoints); // 前の状態に戻す. 特異点に入る直前の状態になる
 	// cmdPoseExists = false; // cmdPoseが存在しない
 	break;
-      case SlrmModule.CmdVelGeneratorStatus.ERROR.value:
+      case StatusERROR:
 	console.error('CmdVelGenerator returned ERROR status');
 	break;
       default:
@@ -742,7 +819,7 @@ function mainFunc(timeStep) {
       }
     }
   }
-  if (result_status !== null && result_other !== null) {
+  if (result_status_value !== null && result_other !== null) {
     let limitFlag = Array(joints.length).fill(0);
     let jointLimitExceed = false;
     for (let i=0; i<joints.length; i++) {
@@ -761,9 +838,10 @@ function mainFunc(timeStep) {
     }
     if (jointLimitExceed) {
       joints.set(prevJoints);
+      subState = sst.converged;
     }
     self.postMessage({type: 'joints', joints: [...joints]});
-    self.postMessage({type: 'status', status: statusName[result_status.value],
+    self.postMessage({type: 'status', status: statusName[result_status_value],
 		      exact_solution: exactSolution,
 		      condition_number: result_other.condition_number,
 		      manipulability: result_other.manipulability,
@@ -786,7 +864,7 @@ function mainFunc(timeStep) {
 	if (Math.max(...logPrevJoints.map((v, i) => Math.abs(v - joints[i]))) > 0.005) {
 	  // ログ出力
 	  console.log('counter:', counter,
-		      'status: ', statusName[result_status.value] ,
+		      'status: ', statusName[result_status_value] ,
 		      ' condition:' , result_other.condition_number.toFixed(2) ,
 		      ' m:' , result_other.manipulability.toFixed(3) ,
 		      ' k:' , result_other.sensitivity_scale.toFixed(3)
