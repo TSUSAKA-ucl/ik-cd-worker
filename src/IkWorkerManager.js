@@ -22,6 +22,7 @@ export default function IkWorkerManager({robotName,
     workerRef.current = new Worker('/ik_cd_worker.js', { type: 'module',
 							 name: robotName});
     console.log("workerRef.current: ", workerRef.current);
+    let isWaitingEndState = true;
     workerRef.current.onmessage = (event) => {
       switch (event.data.type) {
       case 'ready': {
@@ -60,6 +61,14 @@ export default function IkWorkerManager({robotName,
 	break;
       case 'status':
 	workerData.current.status = event.data;
+	if (isWaitingEndState &&
+	    workerData.current.status.status === 'END') {
+	  entity.emit('ik-worker-arrival', null, false);
+	  isWaitingEndState = false;
+	}
+	if (workerData.current.status.status !== 'END') {
+	  isWaitingEndState = true;
+	}
 	break;
       case 'pose':
 	workerData.current.pose = event.data;

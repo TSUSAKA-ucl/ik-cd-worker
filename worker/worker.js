@@ -46,6 +46,8 @@ let makeDoubleVectorG = null; // helper function for DoubleVector
 let makeCdDoubleVectorG = null;
 // let newDestinationFlag = false; // 新しいdestinationが来たかどうか
 let exactSolution = false; // singularity通過のための設定
+let ignoreCollision = false; // 干渉判定を無視するかどうか
+let ignoreJointLimits = false; // ジョイントリミットを無視するかどうか
 
 // *************************************
 // ******** WASM module loading ********
@@ -637,6 +639,24 @@ self.onmessage = function(event) {
       }
     }
     break;
+  case 'set_ignore_collisions':
+    if (workerState === st.generatorReady ||
+	workerState === st.slrmReady) {
+      if (data.ignoreCollisions !== undefined) {
+	ignoreCollision = data.ignoreCollisions;
+	console.log('Ignore collisions set to: ', ignoreCollision);
+      }
+    }
+    break;
+  case 'set_ignore_joint_limits':
+    if (workerState === st.generatorReady ||
+	workerState === st.slrmReady) {
+      if (data.ignoreJointLimits !== undefined) {
+	ignoreJointLimits = data.ignoreJointLimits;
+	console.log('Ignore joint limits set to: ', ignoreJointLimits);
+      }
+    }
+    break;
   default:
     break;
   }
@@ -645,7 +665,7 @@ self.onmessage = function(event) {
 
 // ******** collision detection function ********
 function detectCollisions(joints, result_collision) {
-  if (gjkCd) {
+  if (!ignoreCollision && gjkCd) {
     const jointPositions = makeCdDoubleVectorG(joints);
     gjkCd.calcFk(jointPositions);
     jointPositions.delete();
@@ -821,24 +841,26 @@ function mainFunc(timeStep) {
   }
   if (result_status_value !== null && result_other !== null) {
     let limitFlag = Array(joints.length).fill(0);
-    let jointLimitExceed = false;
-    for (let i=0; i<joints.length; i++) {
-      if (joints[i] > jointUpperLimits[i]) {
-	limitFlag[i] = 1;
-	// joints[i] = jointUpperLimits[i] - 0.001; // 
-	prevJoints[i] = jointUpperLimits[i] - 0.001;
-	jointLimitExceed = true;
+    if (!ignoreJointLimits) {
+      let jointLimitExceed = false;
+      for (let i=0; i<joints.length; i++) {
+	if (joints[i] > jointUpperLimits[i]) {
+	  limitFlag[i] = 1;
+	  // joints[i] = jointUpperLimits[i] - 0.001; // 
+	  prevJoints[i] = jointUpperLimits[i] - 0.001;
+	  jointLimitExceed = true;
+	}
+	if (joints[i] < jointLowerLimits[i]) {
+	  limitFlag[i] = -1;
+	  // joints[i] = jointLowerLimits[i] + 0.001; //
+	  prevJoints[i]  = jointLowerLimits[i] + 0.001;
+	  jointLimitExceed = true;
+	}
       }
-      if (joints[i] < jointLowerLimits[i]) {
-	limitFlag[i] = -1;
-	// joints[i] = jointLowerLimits[i] + 0.001; //
-	prevJoints[i]  = jointLowerLimits[i] + 0.001;
-	jointLimitExceed = true;
+      if (jointLimitExceed) {
+	joints.set(prevJoints);
+	subState = sst.converged;
       }
-    }
-    if (jointLimitExceed) {
-      joints.set(prevJoints);
-      subState = sst.converged;
     }
     self.postMessage({type: 'joints', joints: [...joints]});
     self.postMessage({type: 'status', status: statusName[result_status_value],
