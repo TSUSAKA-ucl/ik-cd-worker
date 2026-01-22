@@ -18,10 +18,10 @@ export default function IkWorkerManager({robotName,
   if (workerRef.current !== null) {
     console.error("Worker already exists.Something is wrong.");
   } else {
-    console.log("******** Creating a new ik-cd-worker ********");
+    console.log('******** Creating a new ik-cd-worker for',robotName,'********');
     workerRef.current = new Worker('/ik_cd_worker.js', { type: 'module',
 							 name: robotName});
-    console.log("workerRef.current: ", workerRef.current);
+    console.debug("workerRef.current: ", workerRef.current);
     let isWaitingEndState = true;
     workerRef.current.onmessage = (event) => {
       switch (event.data.type) {

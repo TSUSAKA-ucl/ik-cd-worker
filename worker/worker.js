@@ -56,7 +56,7 @@ console.debug('Now intended to import ModuleFactory');
 // import ModuleFactory from '/wasm/slrm_module.js';
 const ModuleFactory = await import('/wasm/slrm_module.js');
 const CdModuleFactory = await import('/wasm/cd_module.js');
-console.log('ModuleFactory: ', ModuleFactory);
+console.debug('ModuleFactory: ', ModuleFactory);
 console.debug('ModuleFactory.default type:', typeof ModuleFactory.default);
 if (typeof ModuleFactory.default !== 'function') {
   console.error('ModuleFactory.default is not a function:', ModuleFactory.default);
@@ -112,7 +112,7 @@ function createCdHelpers(module) {
     return vec;
   }
   function makeConvexShape(xyzArray) {
-    // console.log("module", module);
+    // console.debug("module", module);
     const vec = new module.ConvexShape();
     for (let i = 0; i < xyzArray.length; ++i) {
       const xyz = xyzArray[i];
@@ -302,7 +302,7 @@ self.onmessage = function(event) {
   case 'init': if (workerState === st.waitingRobotType) {
     workerState = st.generatorMaking;
     console.log('constructing CmdVelGenerator with :', data.filename);
-    console.log('URDF modifier file is', data.modifier);
+    console.debug('URDF modifier file is', data.modifier);
     // 初期化処理
     const { makeDoubleVector } = createHelpers(SlrmModule);
     const { makeCdDoubleVector, makeConvexShape } = createCdHelpers(CdModule);
@@ -334,7 +334,7 @@ self.onmessage = function(event) {
 	    console.debug('type of SlrmModule.CmdVelGen: '
 			  + typeof SlrmModule.CmdVelGenerator);
 	    cmdVelGen = new SlrmModule.CmdVelGenerator(jointModelVector);
-	    // console.log("type of jointModels is ", typeof jointModels);
+	    // console.debug("type of jointModels is ", typeof jointModels);
 	    jointModelsArray.forEach(model => model.delete());
 	    jointModelVector.delete();
 	    if (cmdVelGen === null || cmdVelGen === undefined) {
@@ -343,15 +343,15 @@ self.onmessage = function(event) {
 	      return;
 	    }
 	    if (cmdVelGen !== null && cmdVelGen !== undefined) {
-	      console.log('CmdVelGen instance created:', cmdVelGen);
+	      console.debug('CmdVelGen instance created:', cmdVelGen);
 	    }
 	    // joint limitsの設定
 	    revolutes.forEach(obj => {
 	      jointUpperLimits.push(obj.limit.$.upper);
 	      jointLowerLimits.push(obj.limit.$.lower);
 	    });
-	    console.log('jointLimits: ', jointUpperLimits, jointLowerLimits);
-	    console.log('Status Definitions: ' +
+	    console.debug('jointLimits: ', jointUpperLimits, jointLowerLimits);
+	    console.debug('Status Definitions: ' +
 			"OK:" + StatusOK + ", " +
 			"ERROR:" + StatusERROR + ", " +
 			"END:" + StatusEND);
@@ -391,20 +391,20 @@ self.onmessage = function(event) {
 				    'と一致しません。');
 		    return;
 		  }
-		  console.log('linkShapes.length: ', linkShapes.length);
+		  console.log('linkShapes.length in',data.linkShapes,': ', linkShapes.length);
 		  for (let i = 0; i < linkShapes.length; ++i) {
-		    // console.log(`リンク番号${i} のvector生成`);
+		    // console.debug(`リンク番号${i} のvector生成`);
 		    const shapeWasm = new CdModule.ConvexShapeVector();
 		    for (const convex of linkShapes[i]) {
 		      const convexWasm = makeConvexShape(convex);
-		      // console.log('size of convex js: ', convex.length);
+		      // console.debug('size of convex js: ', convex.length);
 		      shapeWasm.push_back(convexWasm);
 		      convexWasm.delete();
 		    }
 		    gjkCd.addLinkShape(i, shapeWasm);
 		    shapeWasm.delete();
 		  }
-		  console.log('setting up of link shapes is finished');
+		  console.debug('setting up of link shapes is finished');
 		  gjkCd.infoLinkShapes();
 		  // fetch test pairs from data.testPairs if exists
 		  if (!data.testPairs) {
@@ -419,13 +419,13 @@ self.onmessage = function(event) {
 			testPairs.push([i,j]);
 		      }
 		    }
-		    console.log('using default test pairs: ', testPairs);
+		    console.debug('using default test pairs: ', testPairs);
 		    gjkCd.clearTestPairs();
 		    for (const pair of testPairs) {
 		      gjkCd.addTestPair(pair[0],pair[1]);
 		    }
 		  } else {
-		    console.log('recieve test pairs from', data.testPairs);
+		    console.debug('recieve test pairs from', data.testPairs);
 		    fetch(data.testPairs)
 		      .then(response => response.json())
 		      .then(testPairs => {
@@ -441,7 +441,7 @@ self.onmessage = function(event) {
 		});
 	    }
 	    if (data.bridgeUrl) {
-	      console.log('recieve bridge URL: ', data.bridgeUrl);
+	      console.debug('recieve bridge URL: ', data.bridgeUrl);
 	      // bridge用のURLが付いているためbridgeが使える
 	      connectBridge(data.bridgeUrl);
 	    }
@@ -467,7 +467,7 @@ self.onmessage = function(event) {
       initialJoints = joints.slice();
       prevJoints = joints.slice();
       velocities = new Float64Array(joints.length);
-      console.log('Setting initial joints:'
+      console.debug('Setting initial joints:'
 		  +joints.map(v => (v*57.2958).toFixed(1)).join(', '));
       if (!jointRewinder ||
 	  joints.length !== jointRewinder.length) {
@@ -496,7 +496,7 @@ self.onmessage = function(event) {
     // データの受信処理
     //newDestinationFlag = true; // 新しいdestinationが来た
     controllerTfVec = [...data.endLinkPose];
-    // console.log('Received destination: '
+    // console.debug('Received destination: '
     // 		+ controllerTfVec[12].toFixed(3) + ', '
     // 		+ controllerTfVec[13].toFixed(3) + ', '
     // 		+ controllerTfVec[14].toFixed(3));
@@ -605,12 +605,12 @@ self.onmessage = function(event) {
     }
     break;
   case 'set_joint_desirable':
-    console.log('in worker, set_joint_desirable called:', data);
+    console.debug('in worker, set_joint_desirable called:', data);
     if (workerState === st.generatorReady || workerState === st.slrmReady) {
       if (data.jointNumber !== undefined &&
 	  data.lower !== undefined && data.upper !== undefined &&
 	  data.gain !== undefined) {
-	console.log('in worker, set_joint_desirable: jointNumber=', data.jointNumber,
+	console.debug('in worker, set_joint_desirable: jointNumber=', data.jointNumber,
 		    ' lower=', data.lower,
 		    ' upper=', data.upper,
 		    ' gain=', data.gain);
@@ -799,7 +799,7 @@ function mainFunc(timeStep) {
     quaternion[3] = result.quaternion.get(3);
     result.position.delete();
     result.quaternion.delete();
-    // console.log('status: ', result.status.value);
+    // console.debug('status: ', result.status.value);
     if (subState === sst.rewinding &&
 	result.status.value !== StatusEND &&
 	result.status.value !== StatusOK) {
@@ -877,7 +877,7 @@ function mainFunc(timeStep) {
 		     });
     counter ++;
     // if (counter <= 1n) {
-    //   console.log('type of logInterval: ', typeof logInterval,
+    //   console.debug('type of logInterval: ', typeof logInterval,
     // 		  ' type of counter: ', typeof counter);
     // }
     if (logInterval !== 0n && counter % logInterval === 0n) {
@@ -892,7 +892,7 @@ function mainFunc(timeStep) {
 		      ' k:' , result_other.sensitivity_scale.toFixed(3)
 		      + '\n' +
 		      'limit flags: ' + limitFlag.join(', '));
-	  //   console.log('Worker: joints at ' + (counter / (60n*100n / BigInt(timeInterval))).toString() + ' minutes: ' + joints.map(v => (v*57.2958).toFixed(1)).join(', '));
+	  //   console.debug('Worker: joints at ' + (counter / (60n*100n / BigInt(timeInterval))).toString() + ' minutes: ' + joints.map(v => (v*57.2958).toFixed(1)).join(', '));
 	}
       }
       if (!logPrevJoints) logPrevJoints = joints.slice();
