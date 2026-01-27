@@ -51,6 +51,8 @@ class IkCdCalc {
     this.counter = 0n;
     this.jMoveGain = 10.0; // joint move command gain
     this.jMoveVelocityLimit = Math.PI/3.0; // joint move command velocity limit rad/s
+    // ******** result variables ********
+    this.result_collision = [];	// 次回のdetectCollision呼び出しまでの間結果を保存するため
   }
   prepareVectors(numJoints, destinationSize) {
     // ******** destination variables ********
@@ -137,6 +139,7 @@ class IkCdCalc {
       // struct UnsignedPair { unsigned int first, second; };
       // type of resultPairs is std::vector<UnsignedPair>
       //register_vector<in_house::UnsignedPair>("UnsignedPairVector")
+      result_collision.length = 0; // clear previous results
       const count = resultPairs.size();
       for (let i=0; i<count; i++) {
 	const pair = resultPairs.get(i);
@@ -227,7 +230,6 @@ class IkCdCalc {
     let noDestination = this.noDestination;
     let result_status_value = null;
     let result_other = null;
-    let result_collision = [];
     if (!this.cmdVelGen || !this.joints) return;
     if (this.state === st.slrmReady &&
 	(this.subState === sst.moving ||
@@ -239,7 +241,7 @@ class IkCdCalc {
       } else if (this.subState === sst.jMoving) {
 	if (this.doJointMove(timeStep) === true) {
 	  // jMovingの場合、衝突検出を行う
-	  if (this.detectCollisions(this.joints, result_collision) !== 0) {
+	  if (this.detectCollisions(this.joints, this.result_collision) !== 0) {
 	    this.joints.set(this.prevJoints); // 衝突したら前の状態に戻す
 	    this.subState = sst.converged; // 衝突したら動作終了
 	  }
@@ -292,7 +294,7 @@ class IkCdCalc {
 	for (let i=0; i<this.joints.length; i++) {
 	  this.joints[i] = this.joints[i] + this.velocities[i]* timeStep;
 	}
-	if (this.detectCollisions(this.joints, result_collision) !== 0) {
+	if (this.detectCollisions(this.joints, this.result_collision) !== 0) {
 	  this.joints.set(this.prevJoints); // 衝突したら前の状態に戻す
 	}
 	break;
@@ -347,7 +349,7 @@ class IkCdCalc {
 			manipulability: result_other.manipulability,
 			sensitivity_scale: result_other.sensitivity_scale,
 			limit_flag: this.limitFlags,
-			collisions: result_collision
+			collisions: this.result_collision
 		       });
       self.postMessage({type: 'pose',
 			position: position,
