@@ -11,7 +11,7 @@ import { st, sst, bridge } from './workerStateSingleton.js';
 //     emVec.set(i, jsArray[i]);
 //   }
 // }
-function copyArrayToWasmVec(jsArray, emVec, wasmModule) {
+function copyArrayToWasmVec(jsArray, emVec) { // , wasmModule) {
   // const ptr = wasmModule.getDoubleVecData(emVec);
   // const wasmView = wasmModule.HEAPF64.subarray(ptr>>3,
   // 					       (ptr>>3) + emVec.size());
@@ -32,6 +32,8 @@ function copyWasmVecToArray(emVec, jsArray, wasmModule) {
 
 class IkCdCalc {
   constructor (slrmModule, cdModule) {
+    // this.jointLimitKeepMoving = true;
+    this.jointLimitKeepMoving = false;
     this.slrmModule = slrmModule; // SLRM WASM module
     this.cdModule = cdModule;     // Collision Detection WASM module
     this.state =  st.initializing; // worker state
@@ -68,7 +70,7 @@ class IkCdCalc {
     // ******** joint limit variables ********
     this.jointUpperLimits = new Float64Array(numJoints).fill(1e10);
     this.jointLowerLimits = new Float64Array(numJoints).fill(-1e10);
-    this.limitFlags = new Int8Array(numJoints).fill(0);
+    this.limitFlags = new Int32Array(numJoints).fill(0);
     // ******** args for WASM ********
     // this.jointVec = null; // on demandでmakeDoubleVectorGで生成する
     // this.endLinkPose = null; // on demandでmakeDoubleVectorGで生成する
@@ -115,6 +117,14 @@ class IkCdCalc {
     this.endLinkPose.resize(this.endLinkPoseVec.length,0);
     this.emptyEndLinkPose = new wasm.DoubleVector();
     this.emptyEndLinkPose.resize(0);
+    this.limitFlagsWasm = new wasm.Int32Vector();
+    this.limitFlagsWasm.resize(this.joints.length,0);
+  }
+  deleteSlrm() {
+    if (this.jointVec) this.jointVec.delete();
+    if (this.endLinkPose) this.endLinkPose.delete();
+    if (this.emptyEndLinkPose) this.emptyEndLinkPose.delete();
+    if (this.limitFlagsWasm) this.limitFlagsWasm.delete();
   }
   prepareGjkCd(wasmObj, wasm=this.cdModule) {
     this.gjkCd = wasmObj;
@@ -123,17 +133,13 @@ class IkCdCalc {
     this.jointPosition.resize(this.joints.length,0);
     // this.jointVecと同じだがWASMモジュールが異なる
   }
-  deleteSlrm() {
-    if (this.jointVec) this.jointVec.delete();
-    if (this.endLinkPose) this.endLinkPose.delete();
-  }
   deleteGjkCd() {
     if (this.jointPosition) this.jointPosition.delete();
   }
   // ******** collision detection function ********
   detectCollisions(joints, result_collision) {
     if (!this.ignoreCollision && this.gjkCd) {
-      copyArrayToWasmVec(joints, this.jointPosition, this.cdModule);
+      copyArrayToWasmVec(joints, this.jointPosition); // , this.cdModule);
       this.gjkCd.calcFk(this.jointPosition);
       const resultPairs = this.gjkCd.testCollisionPairs();
       // struct UnsignedPair { unsigned int first, second; };
@@ -257,13 +263,22 @@ class IkCdCalc {
     } else {
       noDestination = true; // 現在値をゴールにしてcalcVelocityPQを1回実行する
     }
-    copyArrayToWasmVec(this.joints, this.jointVec, this.slrmModule);
-    copyArrayToWasmVec(this.endLinkPoseVec,
-		       this.endLinkPose, this.slrmModule);
-    const result = this.cmdVelGen.calcVelocityPQ(this.jointVec,
-						 noDestination ?
-						 this.emptyEndLinkPose :
-						 this.endLinkPose);
+    copyArrayToWasmVec(this.joints, this.jointVec); // , this.slrmModule);
+    copyArrayToWasmVec(this.endLinkPoseVec, this.endLinkPose); // , this.slrmModule);
+    let result = null;
+    if (this.jointLimitKeepMoving) {
+      copyArrayToWasmVec(this.limitFlags, this.limitFlagsWasm); // , this.slrmModule);
+      result = this.cmdVelGen.calcVelocityPQ2(this.jointVec,
+						    noDestination ?
+						    this.emptyEndLinkPose :
+						    this.endLinkPose,
+						    this.limitFlagsWasm);
+    } else {
+      result = this.cmdVelGen.calcVelocityPQ(this.jointVec,
+						   noDestination ?
+						   this.emptyEndLinkPose :
+						   this.endLinkPose);
+    }
     this.noDestination = false; // reset
     if (this.subState === sst.moving) {
       // for (let i=0; i<velocities.length; i++) {
@@ -339,7 +354,9 @@ class IkCdCalc {
 	}
 	if (jointLimitExceed) {
 	  this.joints.set(this.prevJoints);
-	  this.subState = sst.converged;
+	  if (!this.jointLimitKeepMoving) {
+	    this.subState = sst.converged; // ジョイントリミットに達したら動作終了
+	  }
 	}
       }
       self.postMessage({type: 'joints', joints: this.joints});
