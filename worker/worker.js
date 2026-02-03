@@ -128,11 +128,10 @@ self.onmessage = function(event) {
 	    if (!urdfIsSorted) {
 	      urdfData = sortJointsByHierarchy(urdfData);
 	    }
-	    const revolutes = urdfData.filter(obj => obj.$.type === 'revolute');
-	    calcObj.prepareVectors(revolutes.length, 16);
 
+	    // setting the WASM object's parameters
 	    const {jointModelVector,
-		   jointModelsArray} = createJointModel(SlrmModule, revolutes);
+		   jointModelsArray} = createJointModel(SlrmModule, urdfData);
 	    console.debug('type of SlrmModule.CmdVelGen: '
 			  + typeof SlrmModule.CmdVelGenerator);
 	    cmdVelGen = new SlrmModule.CmdVelGenerator(jointModelVector);
@@ -147,6 +146,10 @@ self.onmessage = function(event) {
 	    if (cmdVelGen !== null && cmdVelGen !== undefined) {
 	      console.debug('CmdVelGen instance created:', cmdVelGen);
 	    }
+
+	    // prepare the main loop object
+	    const revolutes = urdfData.filter(obj => obj.$.type === 'revolute');
+	    calcObj.prepareVectors(revolutes.length, 16);
 	    calcObj.prepareCmdVelGen(cmdVelGen);
 	    // joint limitsの設定
 	    const jointUpperLimits = [];
@@ -177,7 +180,7 @@ self.onmessage = function(event) {
 
 	    if (data.linkShapes) {
 	      const {jointModelVector,
-		     jointModelsArray} = createJointModel(CdModule, revolutes);
+		     jointModelsArray} = createJointModel(CdModule, urdfData);
 	      const basePosition = makeCdDoubleVector([0.0, 0.0, 0.0]);
 	      const baseOrientation = makeCdDoubleVector([1.0, 0.0, 0.0, 0.0]);
 	      gjkCd = new CdModule.CollisionDetection(jointModelVector,
@@ -598,6 +601,14 @@ function createJointModel(mod, list) {
     }
     return vec;
   }
+  const jointTypeFromString = {
+    revolute: mod.JointType.Revolute,
+    continuous: mod.JointType.Continuous,
+    prismatic: mod.JointType.Prismatic,
+    fixed: mod.JointType.Fixed,
+    floating: mod.JointType.Floating,
+    planar: mod.JointType.Planar,
+  };
 
   const jointModelsArray = list.map(obj => {
     const xyz_in = obj.origin.$.xyz ?? [0,0,0];// [NaN, NaN, NaN];
@@ -608,11 +619,17 @@ function createJointModel(mod, list) {
     const rpy = modDoubleVector(mod,
 				Array.isArray(rpy_in) && rpy_in.length === 3
 				? rpy_in : [0,0,0]);//[NaN, NaN, NaN]);
-    const axis_in = obj.axis.$.xyz ?? [0,0,1];//[NaN, NaN, NaN];
+    const axis_in = obj.axis?.$?.xyz ?? [0,0,1];//[NaN, NaN, NaN];
     const axis = modDoubleVector(mod,
 				 Array.isArray(axis_in) && axis_in.length === 3
 				 ? axis_in : [0,0,1]);//[NaN, NaN, NaN]);
-    const jointModel = new mod.JointModelFlatStruct(axis, xyz, rpy);
+    let jt = jointTypeFromString[obj.$?.type];
+    if (!jt) {
+      console.error('Unknown joint type string:', obj.$?.type,
+		    'setting to fixed');
+      jt = jointTypeFromString.fixed;
+    }
+    const jointModel = new mod.JointModelFlatStruct(axis, xyz, rpy, jt);
     axis.delete();
     xyz.delete();
     rpy.delete();
