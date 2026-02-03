@@ -351,31 +351,42 @@ self.onmessage = function(event) {
     }
     break;
   case 'set_end_effector_point':
+  case 'set_end_effector_position':
+  case 'set_end_effector_orientation':
+  case 'set_end_effector_pose':
     // calcObj.stateとcalcObj.subStateが何のときに可能とするかは未定
-    if (data.endEffectorPoint && makeDoubleVectorG) {
-      // if (data.endEffectorPoint === null) {
-      // 	const ee = cmdVelGen?.getEndEffectorPosition();
-      // 	const endEffectorPoint = [ee.get(0), ee.get(1), ee.get(2)];
-      // 	ee.delete();
-      // 	self.postMessage({type: 'end_effector_point',
-      // 			  endEffectorPoint: endEffectorPoint});
-      // }
-      if (data.endEffectorPoint.length === 3 &&
+    if (makeDoubleVectorG) {
+
+      if (data.endEffectorPoint &&
+	  data.endEffectorPoint.length === 3 &&
 	  typeof data.endEffectorPoint[0] === 'number' &&
 	  typeof data.endEffectorPoint[1] === 'number' &&
 	  typeof data.endEffectorPoint[2] === 'number') {
-	console.debug('Setting end effector point: ', data.endEffectorPoint);
 	const endEffectorPosition = makeDoubleVectorG(data.endEffectorPoint);
 	cmdVelGen?.setEndEffectorPosition(endEffectorPosition);
 	endEffectorPosition.delete();
-	const tmp = calcObj.subState;
-	calcObj.subState = sst.moving; // アームをee移動分だけ動かすために一回呼ぶ
-	// endLinkPoseVec = []; // 現在値をゴールにしてcalcVelocityPQを1回実行する
-	calcObj.noDestination = true;
-	// mainFunc(0); // ここでeeの位置を更新
-	calcObj.step(0);
-	calcObj.subState = tmp; // 元の状態に戻す
       }
+      if (data.endEffectorQuaternion &&
+	  data.endEffectorQuaternion.length === 4 &&
+	  typeof data.endEffectorQuaternion[0] === 'number' &&
+	  typeof data.endEffectorQuaternion[1] === 'number' &&
+	  typeof data.endEffectorQuaternion[2] === 'number' &&
+	  typeof data.endEffectorQuaternion[3] === 'number') {
+	const eigenQuat = [ data.endEffectorQuaternion[3],
+			    data.endEffectorQuaternion[0],
+			    data.endEffectorQuaternion[1],
+			    data.endEffectorQuaternion[2] ];
+	const endEffectorOrientation = makeDoubleVectorG(eigenQuat);
+	cmdVelGen?.setEndEffectorOrientation(endEffectorOrientation);
+	endEffectorOrientation.delete();
+      }
+      const tmp = calcObj.subState;
+      calcObj.subState = sst.moving; // アームをee移動分だけ動かすために一回呼ぶ
+      // endLinkPoseVec = []; // 現在値をゴールにしてcalcVelocityPQを1回実行する
+      calcObj.noDestination = true;
+      // mainFunc(0); // ここでeeの位置を更新
+      calcObj.step(0);
+      calcObj.subState = tmp; // 元の状態に戻す
     }
     break;
   case 'set_exact_solution':
