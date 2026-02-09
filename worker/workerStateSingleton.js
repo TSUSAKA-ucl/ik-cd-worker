@@ -21,17 +21,17 @@ export const bridge = {
   connect: function() {
     this.socket = new WebSocket(this.url);
     this.socket.onopen = () => {
-      console.log('WebSocket connected');
+      globalThis.__customLogger?.log('WebSocket connected');
       while (this.messageQueue.length > 0) {
 	this.socket.send(this.messageQueue.shift());
       }
     };
     this.socket.onclose = (e) => {
-      console.log('webSocket closed, will retry...', e.code,e.reason);
+      globalThis.__customLogger?.log('webSocket closed, will retry...', e.code,e.reason);
       this.scheduleReconnect();
     }
     this.socket.onerror = (err) => {
-      console.error('WebSocket error', err);
+      globalThis.__customLogger?.error('WebSocket error', err);
       this.socket.close();	// the socket must be closed to reconnect
     }
   },
@@ -41,7 +41,7 @@ export const bridge = {
     this.reconnectTimer = setTimeout(()=>{
       this.reconnectTimer = null;
       if (this.url) {
-	console.log('Reconnecting...');
+	globalThis.__customLogger?.log('Reconnecting...');
 	this.connect();
       }
     }, 3000); // 3秒後に再接続

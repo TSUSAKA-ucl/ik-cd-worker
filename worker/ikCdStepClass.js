@@ -78,12 +78,12 @@ class IkCdCalc {
   setJointLimits(lowerLimits, upperLimits) {
     if ((Array.isArray(lowerLimits) || lowerLimits instanceof Float64Array) 
 	&& lowerLimits.length !== this.joints.length) {
-      console.error('setJointLimits: lowerLimits length mismatch');
+      globalThis.__customLogger?.error('setJointLimits: lowerLimits length mismatch');
       return;
     }
     if ((Array.isArray(upperLimits) || upperLimits instanceof Float64Array)
 	&& upperLimits.length !== this.joints.length) {
-      console.error('setJointLimits: upperLimits length mismatch');
+      globalThis.__customLogger?.error('setJointLimits: upperLimits length mismatch');
       return;
     }
     this.jointLowerLimits.set(lowerLimits);
@@ -183,7 +183,7 @@ class IkCdCalc {
       }
       return true;
     } else {
-      console.error('controllerJointVec is not set properly for joint move');
+      globalThis.__customLogger?.error('controllerJointVec is not set properly for joint move');
       return false;
     }
   }
@@ -218,7 +218,7 @@ class IkCdCalc {
 	socket.send(binary);
       } else {
 	if (bridge.url) {
-	  console.log('Not connected, queueing message');
+	  globalThis.__customLogger?.log('Not connected, queueing message');
 	  bridge.messageQueue.push(msg);
 	  if (!socket || socket.readyState === WebSocket.CLOSED) {
 	    bridge.connect();
@@ -296,11 +296,11 @@ class IkCdCalc {
     copyWasmVecToArray(result.quaternion, quaternion, this.slrmModule);
     result.position.delete();
     result.quaternion.delete();
-    // console.debug('status: ', result.status.value);
+    // globalThis.__customLogger?.debug('status: ', result.status.value);
     if (this.subState === sst.rewinding &&
 	result.status.value !== this.SLRM_STAT.END &&
 	result.status.value !== this.SLRM_STAT.OK) {
-      console.warn('CmdVelGenerator returned status other than END or OK during rewinding:', this.statusName[result.status.value]);
+      globalThis.__customLogger?.warn('CmdVelGenerator returned status other than END or OK during rewinding:', this.statusName[result.status.value]);
     }
     if (this.subState === sst.moving) {
       switch (result.status.value) {
@@ -321,17 +321,17 @@ class IkCdCalc {
       case this.SLRM_STAT.SIMGILARITY:
 	// 現状のCmdVelGeneratorではこの状態は発生せずREWINDに変わる
 	// cmdPoseExists = false; // cmdPoseが存在しない
-	console.error('CmdVelGenerator returned SINGULARITY status');
+	globalThis.__customLogger?.error('CmdVelGenerator returned SINGULARITY status');
 	break;
       case this.SLRM_STAT.REWIND:
 	this.joints.set(this.prevJoints); // 前の状態に戻す. 特異点に入る直前の状態になる
 	// cmdPoseExists = false; // cmdPoseが存在しない
 	break;
       case this.SLRM_STAT.ERROR:
-	console.error('CmdVelGenerator returned ERROR status');
+	globalThis.__customLogger?.error('CmdVelGenerator returned ERROR status');
 	break;
       default:
-	console.error('Unknown status from CmdVelGenerator:', result.status.value);
+	globalThis.__customLogger?.error('Unknown status from CmdVelGenerator:', result.status.value);
 	break;
       }
     }
@@ -383,14 +383,14 @@ class IkCdCalc {
 	  }
 	  if (max > 0.005) {
 	    // ログ出力
-	    console.log('counter:', this.counter,
+	    globalThis.__customLogger?.log('counter:', this.counter,
 			'status: ', this.statusName[result_status_value] ,
 			' condition:' , result_other.condition_number.toFixed(2) ,
 			' m:' , result_other.manipulability.toFixed(3) ,
 			' k:' , result_other.sensitivity_scale.toFixed(3)
 			+ '\n' +
 			'limit flags: ' + this.limitFlag.join(', '));
-	    //   console.debug('Worker: joints at ' + (counter / (60n*100n / BigInt(this.timeInterval))).toString() + ' minutes: ' + this.joints.map(v => (v*57.2958).toFixed(1)).join(', '));
+	    //   globalThis.__customLogger?.debug('Worker: joints at ' + (counter / (60n*100n / BigInt(this.timeInterval))).toString() + ' minutes: ' + this.joints.map(v => (v*57.2958).toFixed(1)).join(', '));
 	  }
 	}
 	this.logPrevJoints.set(this.joints); // ログ出力用の前回ジョイントポジションを更新 配列の複製不要

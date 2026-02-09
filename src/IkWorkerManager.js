@@ -1,4 +1,6 @@
 'use client';
+import { customLogger } from './customLogger.js';
+globalThis.__customLogger = customLogger;
 // ****************
 // Worker thread manager component
 // const workerRef = useRef(null);
@@ -16,12 +18,12 @@ export default function IkWorkerManager({robotName,
 					 topicBridgeWebSocketURL})
 {
   if (workerRef.current !== null) {
-    console.error("Worker already exists.Something is wrong.");
+    globalThis.__customLogger?.error("Worker already exists.Something is wrong.");
   } else {
-    console.log('******** Creating a new ik-cd-worker for',robotName,'********');
+    globalThis.__customLogger?.log('******** Creating a new ik-cd-worker for',robotName,'********');
     workerRef.current = new Worker('/ik_cd_worker.js', { type: 'module',
 							 name: robotName});
-    console.debug("workerRef.current: ", workerRef.current);
+    globalThis.__customLogger?.debug("workerRef.current: ", workerRef.current);
     let isWaitingEndState = true;
     workerRef.current.onmessage = (event) => {
       switch (event.data.type) {
@@ -33,7 +35,7 @@ export default function IkWorkerManager({robotName,
 			  testPairs: robotName +'/'+'testPairs.json',
 			  bridgeUrl: topicBridgeWebSocketURL
 			};
-	// console.warn('XXX init msg',initMsg);
+	// globalThis.__customLogger?.warn('XXX init msg',initMsg);
 	workerRef.current
 	  .postMessage(initMsg);
       }
@@ -53,7 +55,7 @@ export default function IkWorkerManager({robotName,
 	break;
       case 'joints':
 	if (event.data.joints) {
-	  console.debug("Worker joint message:",
+	  globalThis.__customLogger?.debug("Worker joint message:",
 			event.data.joints.map(x => x.toFixed(3)).join(', '));
 	  // Always skip to the latest data
 	  workerData.current.joints = event.data.joints;
@@ -102,7 +104,7 @@ export class ToolPointMover {
     this.workerRef.current
       .postMessage({type: 'set_end_effector_point',
 		    endEffectorPoint: this.toolPoint.toArray()});
-    console.debug("Tool Point moved to: ", this.toolPoint.x.toFixed(3),
+    globalThis.__customLogger?.debug("Tool Point moved to: ", this.toolPoint.x.toFixed(3),
 		  this.toolPoint.y.toFixed(3), this.toolPoint.z.toFixed(3));
   }
   delta(delta) {
