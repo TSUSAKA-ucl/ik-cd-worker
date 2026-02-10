@@ -73,7 +73,8 @@ SlrmModule.setJsLogLevel(2); // 3: info level, 4: debug level
 CdModule.setJsLogLevel(2); // 3: info level, 4: debug level
 
 // ******** ik and cd calculation object ********
-const calcObj = new IkCdCalc(SlrmModule, CdModule);
+const moveCommandQueue = [];
+const calcObj = new IkCdCalc(SlrmModule, CdModule, moveCommandQueue);
 
 // ******** worker message handler ********
 globalThis.__customLogger?.debug('now setting onmessage')
@@ -353,17 +354,21 @@ self.onmessage = function(event) {
   } break;
   case 'set_joint_targets':
     if (data.jointTargets &&
-	calcObj.state === st.slrmReady &&
-	calcObj.subState !== sst.rewinding &&
-	calcObj.subState !== sst.moving ) {
-      if (data.jointTargets.length === calcObj.joints.length) {
-	// controllerJointVec = [...data.jointTargets];
-	calcObj.controllerJointVec.set(data.jointTargets);
-	calcObj.subState = sst.jMoving;
+	calcObj.state === st.slrmReady ) {
+      if (calcObj.subState !== sst.rewinding &&
+	  calcObj.subState !== sst.moving ) {
+	if (data.jointTargets.length === calcObj.joints.length) {
+	  // controllerJointVec = [...data.jointTargets];
+	  calcObj.controllerJointVec.set(data.jointTargets);
+	  calcObj.subState = sst.jMoving;
+	} else {
+	  globalThis.__customLogger?.error('set_joint_targets: jointTargets length mismatch:',
+					   data.jointTargets.length, 'vs',
+					   calcObj.joints.length);
+	}
       } else {
-	globalThis.__customLogger?.error('set_joint_targets: jointTargets length mismatch:',
-		      data.jointTargets.length, 'vs',
-		      calcObj.joints.length);
+	const cmd = { type: 'jMove', joints: data.jointTargets };
+	moveCommandQueue.push(cmd);
       }
     } else {
       globalThis.__customLogger?.warn('Ignored set_joint_targets command.');

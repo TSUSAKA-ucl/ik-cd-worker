@@ -31,11 +31,12 @@ function copyWasmVecToArray(emVec, jsArray, wasmModule) {
 }
 
 class IkCdCalc {
-  constructor (slrmModule, cdModule) {
+  constructor (slrmModule, cdModule, cmdQueue) {
     // this.jointLimitKeepMoving = true;
     this.jointLimitKeepMoving = false;
     this.slrmModule = slrmModule; // SLRM WASM module
     this.cdModule = cdModule;     // Collision Detection WASM module
+    this._cmdQueue = cmdQueue;	// move command queue
     this.state =  st.initializing; // worker state
     this.subState =  sst.dormant;  // slrm & joint mover/rewinder state
     this.timeInterval = 4; // time step for simulation in milliseconds
@@ -372,6 +373,16 @@ class IkCdCalc {
 			position: position,
 			quaternion: quaternion,
 		       },[position.buffer, quaternion.buffer]);
+      if (this.subState === sst.converged) {
+	// cmdQueueを確認して新しいコマンドがあれば開始する
+	if (this._cmdQueue.length > 0) {
+	  const cmd = this._cmdQueue.shift();
+	  if (cmd.type === 'jMove') {
+	    this.controllerJointVec.set(cmd.joints);
+	    this.subState = sst.jMoving;
+	  }
+	}
+      }
       this.counter ++;
       if (this.logInterval !== 0n && this.counter % this.logInterval === 0n) {
 	if (// this.logPrevJoints !== null && this.joints !== null &&
