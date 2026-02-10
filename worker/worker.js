@@ -39,6 +39,12 @@ let makeDoubleVectorG = null; // helper function for DoubleVector
 let shutdownFlag = false;
 // ********************************
 
+if (typeof console.log === 'function')
+  globalThis.__customLogger.log = console.log
+if (typeof console.warn === 'function')
+  globalThis.__customLogger.warn = console.warn
+if (typeof console.error === 'function')
+  globalThis.__customLogger.error = console.error
 // *************************************
 // ******** WASM module loading ********
 // *************************************
@@ -91,6 +97,28 @@ self.onmessage = function(event) {
     }
     self.postMessage({type: 'shutdown_complete'});
     shutdownFlag = true; // workerを終了するフラグを立てる
+    break;
+  case 'set_worker_loglevel':
+    if (data?.logLevel && 0<=data.logLevel && data.logLevel<=4) {
+      let logPattern = 0;
+      switch (data.logLevel) {
+      case 0: break;
+      case 1: logPattern = 1; break; // error
+      case 2: logPattern = 3; break; // warn
+      case 3: logPattern = 7; break; // info
+      case 4: logPattern = 15; break; // debug
+      default: logPattern = 3; break;
+      }
+      if (!(logPattern & 1)) { globalThis.__customLogger.error = ()=>{}; }
+      else { globalThis.__customLogger.error = console.error; }
+      if (!(logPattern & 2)) { globalThis.__customLogger.warn = ()=>{}; }
+      else { globalThis.__customLogger.warn = console.warn; }
+      if (!(logPattern & 4)) { globalThis.__customLogger.log = ()=>{}; }
+      else { globalThis.__customLogger.log = console.log; }
+      if (!(logPattern & 8)) { globalThis.__customLogger.debug = ()=>{}; }
+      else { globalThis.__customLogger.debug = console.debug; }
+      globalThis.__customLogger?.log('Worker log level set to', data.logLevel);
+    }
     break;
   case 'set_slrm_loglevel':
     if (data?.logLevel && 0<=data.logLevel && data.logLevel<=4) {
