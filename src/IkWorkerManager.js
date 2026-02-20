@@ -88,7 +88,7 @@ export default function IkWorkerManager({robotName,
 }
 
 import AFRAME from 'aframe';
-const THREE = window.AFRAME.THREE;
+const THREE = AFRAME.THREE;
 
 // *** class that sets the end effector point in the worker thread
 export class ToolPointMover {
@@ -98,7 +98,8 @@ export class ToolPointMover {
     //   this.THREE = AFRAME.THREE;
     //   this.toolPoint = new this.THREE.Vector3(0, 0, 0);
     // });
-    this.toolPoint = new this.THREE.Vector3(0, 0, 0);
+    // == alternative ==
+    this.toolPoint = new THREE.Vector3(0, 0, 0);
   }
   _postToolPoint() {
     this.workerRef.current

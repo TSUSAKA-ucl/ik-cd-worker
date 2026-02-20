@@ -1,0 +1,50 @@
+'use client';
+import { customLogger } from './customLogger.js';
+globalThis.__customLogger = customLogger;
+import AFRAME from 'aframe';
+
+function kebabToCamelCase(str) {
+  // remove 'set-' prefix if present
+  const netStr = str.startsWith('set-') ? str.slice(4) : str;
+  return netStr.replace(/-([a-z])/g, (match, p1) => p1.toUpperCase());
+}
+function kebabToSnakeCase(str) {
+  return str.replace(/-([a-z])/g, (match, p1) => '_' + p1.toLowerCase());
+}
+
+function registerBooleanMessageComponent(componentName,
+					 messageType = kebabToSnakeCase(componentName)) {
+  AFRAME.registerComponent(componentName, {
+    schema: {
+      default: false,
+    },
+    init: function () {
+      this.setFunction = () => {
+	const propertyName = kebabToCamelCase(componentName);
+	if (this.el.workerRef?.current) {
+	  globalThis.__customLogger.debug(`Posting message to worker: ${messageType} with value ${this.data}`);
+	  this.el.workerRef.current.postMessage({
+	    type: messageType,
+	    [propertyName]: this.data,
+	  });
+	} else {
+	  globalThis.__customLogger.warn(`Worker reference not found for ${messageType}`);
+	}
+      };
+    },
+    update: function () {
+      if (this.el.ikWorkerReady) {
+	this.setFunction();
+      }
+      else {
+	this.el.addEventListener('ik-worker-ready', this.setFunction,
+				 { once: true });
+      }
+    }
+  });
+}
+
+registerBooleanMessageComponent('set-exact-solution');
+registerBooleanMessageComponent('set-ignore-joint-limits');
+registerBooleanMessageComponent('set-ignore-collisions');
+registerBooleanMessageComponent('set-joint-limit-keep-moving');

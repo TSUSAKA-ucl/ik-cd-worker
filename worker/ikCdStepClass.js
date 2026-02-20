@@ -4,27 +4,17 @@
 import { encode } from '@msgpack/msgpack';
 
 import { st, sst, bridge } from './workerStateSingleton.js';
+import { customLogger } from './customLogger.js';
+globalThis.__customLogger = customLogger;
+const ucl_logger = globalThis.__customLogger;
+// const ucl_logger = customLogger;
 
-// function  copyArrayToVec(jsArray, emVec) {
-//   const emVecSize = emVec.size();
-//   for (let i = 0; i < emVecSize; ++i) {
-//     emVec.set(i, jsArray[i]);
-//   }
-// }
 function copyArrayToWasmVec(jsArray, emVec) { // , wasmModule) {
-  // const ptr = wasmModule.getDoubleVecData(emVec);
-  // const wasmView = wasmModule.HEAPF64.subarray(ptr>>3,
-  // 					       (ptr>>3) + emVec.size());
-  // wasmView.set(jsArray);
   for (let i = 0; i < emVec.size(); ++i) {
     emVec.set(i, jsArray[i]);
   }
 }
-function copyWasmVecToArray(emVec, jsArray, wasmModule) {
-  // const ptr = wasmModule.getDoubleVecData(emVec);
-  // const wasmView = wasmModule.HEAPF64.subarray(ptr>>3,
-  // 					       (ptr>>3) + jsArray.length);
-  // jsArray.set(wasmView);
+function copyWasmVecToArray(emVec, jsArray) { // , wasmModule) {
   for (let i = 0; i < jsArray.length; ++i) {
     jsArray[i] = emVec.get(i);
   }
@@ -79,12 +69,12 @@ class IkCdCalc {
   setJointLimits(lowerLimits, upperLimits) {
     if ((Array.isArray(lowerLimits) || lowerLimits instanceof Float64Array) 
 	&& lowerLimits.length !== this.joints.length) {
-      globalThis.__customLogger?.error('setJointLimits: lowerLimits length mismatch');
+      ucl_logger?.error('setJointLimits: lowerLimits length mismatch');
       return;
     }
     if ((Array.isArray(upperLimits) || upperLimits instanceof Float64Array)
 	&& upperLimits.length !== this.joints.length) {
-      globalThis.__customLogger?.error('setJointLimits: upperLimits length mismatch');
+      ucl_logger?.error('setJointLimits: upperLimits length mismatch');
       return;
     }
     this.jointLowerLimits.set(lowerLimits);
@@ -184,7 +174,7 @@ class IkCdCalc {
       }
       return true;
     } else {
-      globalThis.__customLogger?.error('controllerJointVec is not set properly for joint move');
+      ucl_logger?.error('controllerJointVec is not set properly for joint move');
       return false;
     }
   }
@@ -219,7 +209,7 @@ class IkCdCalc {
 	socket.send(binary);
       } else {
 	if (bridge.url) {
-	  globalThis.__customLogger?.log('Not connected, queueing message');
+	  ucl_logger?.log('Not connected, queueing message');
 	  bridge.messageQueue.push(msg);
 	  if (!socket || socket.readyState === WebSocket.CLOSED) {
 	    bridge.connect();
@@ -286,22 +276,23 @@ class IkCdCalc {
       // 	velocities[i] = result.joint_velocities.get(i);
       // 	// endLinkPose.lengthが0の場合、velocitiesは0が約束されている
       // }
-      copyWasmVecToArray(result.joint_velocities, this.velocities, this.slrmModule);
+      copyWasmVecToArray(result.joint_velocities, this.velocities);
+      	// , this.slrmModule);
     }
     result.joint_velocities.delete();
     result_status_value = result.status.value;
     result_other = result.other;
     const position = new Float64Array(3);
     const quaternion = new Float64Array(4);
-    copyWasmVecToArray(result.position, position, this.slrmModule);
-    copyWasmVecToArray(result.quaternion, quaternion, this.slrmModule);
+    copyWasmVecToArray(result.position, position); // this.slrmModule);
+    copyWasmVecToArray(result.quaternion, quaternion); //this.slrmModule);
     result.position.delete();
     result.quaternion.delete();
-    // globalThis.__customLogger?.debug('status: ', result.status.value);
+    // ucl_logger?.debug('status: ', result.status.value);
     if (this.subState === sst.rewinding &&
 	result.status.value !== this.SLRM_STAT.END &&
 	result.status.value !== this.SLRM_STAT.OK) {
-      globalThis.__customLogger?.warn('CmdVelGenerator returned status other than END or OK during rewinding:', this.statusName[result.status.value]);
+      ucl_logger?.warn('CmdVelGenerator returned status other than END or OK during rewinding:', this.statusName[result.status.value]);
     }
     if (this.subState === sst.moving) {
       switch (result.status.value) {
@@ -322,17 +313,17 @@ class IkCdCalc {
       case this.SLRM_STAT.SIMGILARITY:
 	// 現状のCmdVelGeneratorではこの状態は発生せずREWINDに変わる
 	// cmdPoseExists = false; // cmdPoseが存在しない
-	globalThis.__customLogger?.error('CmdVelGenerator returned SINGULARITY status');
+	ucl_logger?.error('CmdVelGenerator returned SINGULARITY status');
 	break;
       case this.SLRM_STAT.REWIND:
 	this.joints.set(this.prevJoints); // 前の状態に戻す. 特異点に入る直前の状態になる
 	// cmdPoseExists = false; // cmdPoseが存在しない
 	break;
       case this.SLRM_STAT.ERROR:
-	globalThis.__customLogger?.error('CmdVelGenerator returned ERROR status');
+	ucl_logger?.error('CmdVelGenerator returned ERROR status');
 	break;
       default:
-	globalThis.__customLogger?.error('Unknown status from CmdVelGenerator:', result.status.value);
+	ucl_logger?.error('Unknown status from CmdVelGenerator:', result.status.value);
 	break;
       }
     }
@@ -344,18 +335,20 @@ class IkCdCalc {
 	for (let i=0; i<this.joints.length; i++) {
 	  if (this.joints[i] >= this.jointUpperLimits[i]) {
 	    this.limitFlags[i] = 1;
+	    this.joints[i] = this.prevJoints[i];
 	    this.prevJoints[i] = this.jointUpperLimits[i]; // - 0.001;
 	    jointLimitExceed = true;
 	  }
 	  if (this.joints[i] <= this.jointLowerLimits[i]) {
 	    this.limitFlags[i] = -1;
+	    this.joints[i] = this.prevJoints[i];
 	    this.prevJoints[i]  = this.jointLowerLimits[i]; // + 0.001;
 	    jointLimitExceed = true;
 	  }
 	}
 	if (jointLimitExceed) {
-	  this.joints.set(this.prevJoints);
 	  if (!this.jointLimitKeepMoving) {
+	    this.joints.set(this.prevJoints);
 	    this.subState = sst.converged; // ジョイントリミットに達したら動作終了
 	  }
 	}
@@ -394,14 +387,14 @@ class IkCdCalc {
 	  }
 	  if (max > 0.005) {
 	    // ログ出力
-	    globalThis.__customLogger?.log('counter:', this.counter,
+	    ucl_logger?.log('counter:', this.counter,
 			'status: ', this.statusName[result_status_value] ,
 			' condition:' , result_other.condition_number.toFixed(2) ,
 			' m:' , result_other.manipulability.toFixed(3) ,
 			' k:' , result_other.sensitivity_scale.toFixed(3)
 			+ '\n' +
 			'limit flags: ' + this.limitFlag.join(', '));
-	    //   globalThis.__customLogger?.debug('Worker: joints at ' + (counter / (60n*100n / BigInt(this.timeInterval))).toString() + ' minutes: ' + this.joints.map(v => (v*57.2958).toFixed(1)).join(', '));
+	    //   ucl_logger?.debug('Worker: joints at ' + (counter / (60n*100n / BigInt(this.timeInterval))).toString() + ' minutes: ' + this.joints.map(v => (v*57.2958).toFixed(1)).join(', '));
 	  }
 	}
 	this.logPrevJoints.set(this.joints); // ログ出力用の前回ジョイントポジションを更新 配列の複製不要

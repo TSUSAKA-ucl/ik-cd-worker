@@ -1,6 +1,6 @@
 {
   "name": "@ucl-nuee/ik-cd-worker",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "publishConfig": {
     "access": "public"
   },
@@ -18,6 +18,7 @@
     "copy-wasm": "./scripts/copy-wasm.js"
   },
   "exports": {
+    "./IkWorkerParamsComponents.js": "./src/IkWorkerParamsComponents.js",
     "./IkWorkerManager.js": "./src/IkWorkerManager.js"
   },
   "scripts": {

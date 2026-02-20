@@ -1,6 +1,7 @@
 'use strict';
 import { customLogger } from './customLogger.js';
 globalThis.__customLogger = customLogger;
+const ucl_logger = globalThis.__customLogger;
 // Worker script for handling messages and performing calculations
 // worker state definition
 import {TrapVelocGenerator} from './TrapVelocGenerator.js';
@@ -40,32 +41,32 @@ let shutdownFlag = false;
 // ********************************
 
 if (typeof console.log === 'function')
-  globalThis.__customLogger.log = console.log
+  ucl_logger.log = console.log
 if (typeof console.warn === 'function')
-  globalThis.__customLogger.warn = console.warn
+  ucl_logger.warn = console.warn
 if (typeof console.error === 'function')
-  globalThis.__customLogger.error = console.error
+  ucl_logger.error = console.error
 // *************************************
 // ******** WASM module loading ********
 // *************************************
-globalThis.__customLogger?.debug('Now intended to import ModuleFactory');
+ucl_logger?.debug('Now intended to import ModuleFactory');
 // import ModuleFactory from '/wasm/slrm_module.js';
 const ModuleFactory = await import('/wasm/slrm_module.js');
 const CdModuleFactory = await import('/wasm/cd_module.js');
-globalThis.__customLogger?.debug('ModuleFactory: ', ModuleFactory);
-globalThis.__customLogger?.debug('ModuleFactory.default type:', typeof ModuleFactory.default);
+ucl_logger?.debug('ModuleFactory: ', ModuleFactory);
+ucl_logger?.debug('ModuleFactory.default type:', typeof ModuleFactory.default);
 if (typeof ModuleFactory.default !== 'function') {
-  globalThis.__customLogger?.error('ModuleFactory.default is not a function:', ModuleFactory.default);
+  ucl_logger?.error('ModuleFactory.default is not a function:', ModuleFactory.default);
   throw new Error('ModuleFactory.default is not a valid function');
 }
 const SlrmModule = await ModuleFactory.default();
 if (!SlrmModule) {
-  globalThis.__customLogger?.error('Failed to load SlrmModule');
+  ucl_logger?.error('Failed to load SlrmModule');
   throw new Error('SlrmModule could not be loaded');
 }
 const CdModule = await CdModuleFactory.default();
 if (!CdModule) {
-  globalThis.__customLogger?.error('Failed to load CdModule');
+  ucl_logger?.error('Failed to load CdModule');
   throw new Error('CdModule could not be loaded');
 }
 
@@ -77,7 +78,7 @@ const moveCommandQueue = [];
 const calcObj = new IkCdCalc(SlrmModule, CdModule, moveCommandQueue);
 
 // ******** worker message handler ********
-globalThis.__customLogger?.debug('now setting onmessage')
+ucl_logger?.debug('now setting onmessage')
 self.onmessage = function(event) {
   const data = event.data;
   let cmdVelGen = calcObj.cmdVelGen;
@@ -110,15 +111,15 @@ self.onmessage = function(event) {
       case 4: logPattern = 15; break; // debug
       default: logPattern = 3; break;
       }
-      if (!(logPattern & 1)) { globalThis.__customLogger.error = ()=>{}; }
-      else { globalThis.__customLogger.error = console.error; }
-      if (!(logPattern & 2)) { globalThis.__customLogger.warn = ()=>{}; }
-      else { globalThis.__customLogger.warn = console.warn; }
-      if (!(logPattern & 4)) { globalThis.__customLogger.log = ()=>{}; }
-      else { globalThis.__customLogger.log = console.log; }
-      if (!(logPattern & 8)) { globalThis.__customLogger.debug = ()=>{}; }
-      else { globalThis.__customLogger.debug = console.debug; }
-      globalThis.__customLogger?.log('Worker log level set to', data.logLevel);
+      if (!(logPattern & 1)) { ucl_logger.error = ()=>{}; }
+      else { ucl_logger.error = console.error; }
+      if (!(logPattern & 2)) { ucl_logger.warn = ()=>{}; }
+      else { ucl_logger.warn = console.warn; }
+      if (!(logPattern & 4)) { ucl_logger.log = ()=>{}; }
+      else { ucl_logger.log = console.log; }
+      if (!(logPattern & 8)) { ucl_logger.debug = ()=>{}; }
+      else { ucl_logger.debug = console.debug; }
+      ucl_logger?.log('Worker log level set to', data.logLevel);
     }
     break;
   case 'set_slrm_loglevel':
@@ -133,8 +134,8 @@ self.onmessage = function(event) {
     break; 
   case 'init': if (calcObj.state === st.waitingRobotType) {
     calcObj.state = st.generatorMaking;
-    globalThis.__customLogger?.log('constructing CmdVelGenerator with :', data.filename);
-    globalThis.__customLogger?.debug('URDF modifier file is', data.modifier);
+    ucl_logger?.log('constructing CmdVelGenerator with :', data.filename);
+    ucl_logger?.debug('URDF modifier file is', data.modifier);
     // 初期化処理
     const { makeDoubleVector } = createHelpers(SlrmModule);
     const { makeCdDoubleVector, makeConvexShape } = createCdHelpers(CdModule);
@@ -163,19 +164,19 @@ self.onmessage = function(event) {
 	    // setting the WASM object's parameters
 	    const {jointModelVector,
 		   jointModelsArray} = createJointModel(SlrmModule, urdfData);
-	    globalThis.__customLogger?.debug('type of SlrmModule.CmdVelGen: '
+	    ucl_logger?.debug('type of SlrmModule.CmdVelGen: '
 			  + typeof SlrmModule.CmdVelGenerator);
 	    cmdVelGen = new SlrmModule.CmdVelGenerator(jointModelVector);
-	    // globalThis.__customLogger?.debug("type of jointModels is ", typeof jointModels);
+	    // ucl_logger?.debug("type of jointModels is ", typeof jointModels);
 	    jointModelsArray.forEach(model => model.delete());
 	    jointModelVector.delete();
 	    if (cmdVelGen === null || cmdVelGen === undefined) {
-	      globalThis.__customLogger?.error('generation of CmdVelGen instance failed');
+	      ucl_logger?.error('generation of CmdVelGen instance failed');
 	      cmdVelGen = null;
 	      return;
 	    }
 	    if (cmdVelGen !== null && cmdVelGen !== undefined) {
-	      globalThis.__customLogger?.debug('CmdVelGen instance created:', cmdVelGen);
+	      ucl_logger?.debug('CmdVelGen instance created:', cmdVelGen);
 	    }
 
 	    // prepare the main loop object
@@ -191,9 +192,9 @@ self.onmessage = function(event) {
 	    });
 	    calcObj.setJointLimits(jointLowerLimits,
 				   jointUpperLimits);
-	    globalThis.__customLogger?.debug('jointLimits: ', jointUpperLimits,
+	    ucl_logger?.debug('jointLimits: ', jointUpperLimits,
 			  jointLowerLimits);
-	    globalThis.__customLogger?.debug('Status Definitions: ' +
+	    ucl_logger?.debug('Status Definitions: ' +
 			  "OK:" + calcObj.SLRM_STAT?.OK + ", " +
 			  "ERROR:" + calcObj.SLRM_STAT?.ERROR + ", " +
 			  "END:" + calcObj.SLRM_STAT?.END + ", " +
@@ -229,25 +230,25 @@ self.onmessage = function(event) {
 		.then(async linkShapes => {
 		  if (linkShapes.length !== revolutes.length + 2) { // +2はbaseとend_effectorの分
 		    if (linkShapes.length !== 0)
-		      globalThis.__customLogger?.error('干渉形状定義の数', linkShapes.length,
+		      ucl_logger?.error('干渉形状定義の数', linkShapes.length,
 				    'がジョイントの数(+2 effector必須)', revolutes.length+2,
 				    'と一致しません。');
 		    return;
 		  }
-		  globalThis.__customLogger?.log('linkShapes.length in',data.linkShapes,': ', linkShapes.length);
+		  ucl_logger?.log('linkShapes.length in',data.linkShapes,': ', linkShapes.length);
 		  for (let i = 0; i < linkShapes.length; ++i) {
-		    // globalThis.__customLogger?.debug(`リンク番号${i} のvector生成`);
+		    // ucl_logger?.debug(`リンク番号${i} のvector生成`);
 		    const shapeWasm = new CdModule.ConvexShapeVector();
 		    for (const convex of linkShapes[i]) {
 		      const convexWasm = makeConvexShape(convex);
-		      // globalThis.__customLogger?.debug('size of convex js: ', convex.length);
+		      // ucl_logger?.debug('size of convex js: ', convex.length);
 		      shapeWasm.push_back(convexWasm);
 		      convexWasm.delete();
 		    }
 		    gjkCd.addLinkShape(i, shapeWasm);
 		    shapeWasm.delete();
 		  }
-		  globalThis.__customLogger?.debug('setting up of link shapes is finished');
+		  ucl_logger?.debug('setting up of link shapes is finished');
 		  gjkCd.infoLinkShapes();
 		  // fetch test pairs from data.testPairs if exists
 		  if (!data.testPairs) {
@@ -262,13 +263,13 @@ self.onmessage = function(event) {
 			testPairs.push([i,j]);
 		      }
 		    }
-		    globalThis.__customLogger?.debug('using default test pairs: ', testPairs);
+		    ucl_logger?.debug('using default test pairs: ', testPairs);
 		    gjkCd.clearTestPairs();
 		    for (const pair of testPairs) {
 		      gjkCd.addTestPair(pair[0],pair[1]);
 		    }
 		  } else {
-		    globalThis.__customLogger?.debug('recieve test pairs from', data.testPairs);
+		    ucl_logger?.debug('recieve test pairs from', data.testPairs);
 		    const response = await fetch(data.testPairs);
 		    const testPairs = await response.json();
 		    gjkCd.clearTestPairs();
@@ -282,11 +283,11 @@ self.onmessage = function(event) {
 		  calcObj.prepareGjkCd(gjkCdInstance);
 		})
 		.catch(error => {
-		  globalThis.__customLogger?.error('Error fetching or parsing SHAPE file:', error);
+		  ucl_logger?.error('Error fetching or parsing SHAPE file:', error);
 		});
 	    }
 	    if (data.bridgeUrl) {
-	      globalThis.__customLogger?.debug('recieve bridge URL: ', data.bridgeUrl);
+	      ucl_logger?.debug('recieve bridge URL: ', data.bridgeUrl);
 	      // bridge用のURLが付いているためbridgeが使える
 	      bridge.url = data.bridgeUrl;
 	      bridge.connect();
@@ -296,12 +297,12 @@ self.onmessage = function(event) {
 	    self.postMessage({type: 'generator_ready'});
 	  })
 	  .catch(error => {
-	    globalThis.__customLogger?.warn('Error fetching or parsing URDF modifier file:', error);
-	    globalThis.__customLogger?.warn('modifier file name:', data.modifier);
+	    ucl_logger?.warn('Error fetching or parsing URDF modifier file:', error);
+	    ucl_logger?.warn('modifier file name:', data.modifier);
 	  });
       })
       .catch(error => {
-	globalThis.__customLogger?.error('Error fetching or parsing URDF.JSON file:', error);
+	ucl_logger?.error('Error fetching or parsing URDF.JSON file:', error);
       });
   } break;
   case 'set_initial_joints': if (calcObj.state === st.generatorReady ||
@@ -315,7 +316,7 @@ self.onmessage = function(event) {
       calcObj.initialjoints = initialJoints;
       calcObj.prevJoints = joints.slice();
       // velocities = new Float64Array(joints.length);
-      globalThis.__customLogger?.debug('Setting initial joints:'
+      ucl_logger?.debug('Setting initial joints:'
 		  +joints.map(v => (v*57.2958).toFixed(1)).join(', '));
       if (!calcObj.jointRewinder ||
 	  joints.length !== calcObj.jointRewinder.length) {
@@ -336,7 +337,7 @@ self.onmessage = function(event) {
       calcObj.noDestination = true;
       calcObj.subState = sst.moving; // 目標位置に移動中
       // calcObj.subState = sst.converged;
-      globalThis.__customLogger?.log('Worker state changed to slrmReady');
+      ucl_logger?.log('Worker state changed to slrmReady');
     }
   } break;
   case 'destination': if (calcObj.state === st.slrmReady &&
@@ -346,7 +347,7 @@ self.onmessage = function(event) {
     // データの受信処理
     //newDestinationFlag = true; // 新しいdestinationが来た
     calcObj.controllerTfVec.set(data.endLinkPose);
-    globalThis.__customLogger?.debug('Received destination: '
+    ucl_logger?.debug('Received destination: '
 		+ calcObj.controllerTfVec[12].toFixed(3) + ', '
 		+ calcObj.controllerTfVec[13].toFixed(3) + ', '
 		+ calcObj.controllerTfVec[14].toFixed(3));
@@ -362,7 +363,7 @@ self.onmessage = function(event) {
 	  calcObj.controllerJointVec.set(data.jointTargets);
 	  calcObj.subState = sst.jMoving;
 	} else {
-	  globalThis.__customLogger?.error('set_joint_targets: jointTargets length mismatch:',
+	  ucl_logger?.error('set_joint_targets: jointTargets length mismatch:',
 					   data.jointTargets.length, 'vs',
 					   calcObj.joints.length);
 	}
@@ -371,9 +372,9 @@ self.onmessage = function(event) {
 	moveCommandQueue.push(cmd);
       }
     } else {
-      globalThis.__customLogger?.warn('Ignored set_joint_targets command.');
-      globalThis.__customLogger?.warn('set_joint_targets: invalid state or missing jointTargets');
-      globalThis.__customLogger?.warn('  calcObj.state:', calcObj.state, ' calcObj.subState:', calcObj.subState);
+      ucl_logger?.warn('Ignored set_joint_targets command.');
+      ucl_logger?.warn('set_joint_targets: invalid state or missing jointTargets');
+      ucl_logger?.warn('  calcObj.state:', calcObj.state, ' calcObj.subState:', calcObj.subState);
     }
     break;
   case 'slow_rewind':
@@ -433,7 +434,7 @@ self.onmessage = function(event) {
 	  calcObj.exactSolution = false;
 	}
 	cmdVelGen?.setExactSolution(calcObj.exactSolution);
-	globalThis.__customLogger?.log('Exact solution for singularity set to: ',
+	ucl_logger?.log('Exact solution for singularity set to: ',
 		    calcObj.exactSolution);
       }
     }
@@ -445,7 +446,7 @@ self.onmessage = function(event) {
 	  data.jointWeight !== undefined) {
 	if (cmdVelGen?.setJointWeight &&
 	    cmdVelGen?.setJointWeight(data.jointNumber, data.jointWeight) !== true) {
-	  globalThis.__customLogger?.error('set_joint_weights: failed to set weight for joint number ',
+	  ucl_logger?.error('set_joint_weights: failed to set weight for joint number ',
 			data.jointNumber);
 	}
       }
@@ -459,7 +460,7 @@ self.onmessage = function(event) {
 	if (cmdVelGen?.setJointDesirableVelocityLimit &&
 	    cmdVelGen?.setJointDesirableVelocityLimit(data.jointNumber,
 						     data.velocityLimit) !== true) {
-	  globalThis.__customLogger?.error('set_joint_desirable_vlimit: failed to set desirable velocity limit for joint number ',
+	  ucl_logger?.error('set_joint_desirable_vlimit: failed to set desirable velocity limit for joint number ',
 			data.jointNumber);
 	}
       }
@@ -471,19 +472,19 @@ self.onmessage = function(event) {
       if (data.jointNumber !== undefined) {
 	if (cmdVelGen?.setJointDesirable &&
 	    cmdVelGen?.setJointDesirable(data.jointNumber, false) !== true) {
-	  globalThis.__customLogger?.error('clear_joint_desirable: failed to clear desirable for joint number ',
+	  ucl_logger?.error('clear_joint_desirable: failed to clear desirable for joint number ',
 			data.jointNumber);
 	}
       }
     }
     break;
   case 'set_joint_desirable':
-    globalThis.__customLogger?.debug('in worker, set_joint_desirable called:', data);
+    ucl_logger?.debug('in worker, set_joint_desirable called:', data);
     if (calcObj.state === st.generatorReady || calcObj.state === st.slrmReady) {
       if (data.jointNumber !== undefined &&
 	  data.lower !== undefined && data.upper !== undefined &&
 	  data.gain !== undefined) {
-	globalThis.__customLogger?.debug('in worker, set_joint_desirable: jointNumber=', data.jointNumber,
+	ucl_logger?.debug('in worker, set_joint_desirable: jointNumber=', data.jointNumber,
 		    ' lower=', data.lower,
 		    ' upper=', data.upper,
 		    ' gain=', data.gain);
@@ -492,7 +493,7 @@ self.onmessage = function(event) {
 					data.lower,
 					data.upper,
 					data.gain) !== true) {
-	  globalThis.__customLogger?.error('set_joint_desirable: failed to set desirable for joint number ',
+	  ucl_logger?.error('set_joint_desirable: failed to set desirable for joint number ',
 			data.jointNumber);
 	}
       }
@@ -504,11 +505,11 @@ self.onmessage = function(event) {
 	const jointVelocityLimit
 	      = makeDoubleVectorG(data.velocityLimit);
 	if (cmdVelGen?.setJointVelocityLimitSingle(jointVelocityLimit) !== true) {
-	  globalThis.__customLogger?.error('set_joint_velocity_limit: failed to set joint velocity limit');
+	  ucl_logger?.error('set_joint_velocity_limit: failed to set joint velocity limit');
 	}
 	jointVelocityLimit.delete();
       } else {
-	globalThis.__customLogger?.error('set_joint_velocity_limit: velocityLimit is undefined');
+	ucl_logger?.error('set_joint_velocity_limit: velocityLimit is undefined');
       }
     }
     break;
@@ -517,7 +518,7 @@ self.onmessage = function(event) {
 	calcObj.state === st.slrmReady) {
       if (data.ignoreCollisions !== undefined) {
 	calcObj.ignoreCollision = data.ignoreCollisions;
-	globalThis.__customLogger?.log('Ignore collisions set to: ',
+	ucl_logger?.log('Ignore collisions set to: ',
 		    calcObj.ignoreCollision);
       }
     }
@@ -527,7 +528,23 @@ self.onmessage = function(event) {
 	calcObj.state === st.slrmReady) {
       if (data.ignoreJointLimits !== undefined) {
 	calcObj.ignoreJointLimits = data.ignoreJointLimits;
-	globalThis.__customLogger?.log('Ignore joint limits set to: ', calcObj.ignoreJointLimits);
+	ucl_logger?.log('Ignore joint limits set to: ', calcObj.ignoreJointLimits);
+      }
+    }
+    break;
+
+  case 'set_joint_limit_keep_moving':
+    ucl_logger?.debug('Joint limit keep moving: command received');
+    ucl_logger?.debug('data:', data);
+    ucl_logger?.debug('arg:', data.jointLimitKeepMoving);
+    ucl_logger?.debug('calcObj.state:', calcObj.state);
+    if (calcObj.state === st.generatorReady ||
+	calcObj.state === st.slrmReady) {
+      if (data.jointLimitKeepMoving !== undefined) {
+
+	calcObj.jointLimitKeepMoving = data.jointLimitKeepMoving;
+	ucl_logger?.log('Joint limit keep moving set to: ',
+			calcObj.jointLimitKeepMoving);
       }
     }
     break;
@@ -554,7 +571,7 @@ function mainLoop(prevTime = performance.now()-calcObj.timeInterval) {
   calcObj.step(deltaTime / 1000); // time step in seconds
   if (shutdownFlag === true) {
     self.postMessage({type: 'shutdown_complete'});
-    globalThis.__customLogger?.log('main loop was finished')
+    ucl_logger?.log('main loop was finished')
     self.close()
     return
   }
@@ -614,7 +631,7 @@ function createCdHelpers(module) {
     return vec;
   }
   function makeConvexShape(xyzArray) {
-    // globalThis.__customLogger?.debug("module", module);
+    // ucl_logger?.debug("module", module);
     const vec = new module.ConvexShape();
     for (let i = 0; i < xyzArray.length; ++i) {
       const xyz = xyzArray[i];
@@ -671,7 +688,7 @@ function createJointModel(mod, list) {
 				 ? axis_in : [0,0,1]);//[NaN, NaN, NaN]);
     let jt = jointTypeFromString[obj.$?.type];
     if (!jt) {
-      globalThis.__customLogger?.error('Unknown joint type string:', obj.$?.type,
+      ucl_logger?.error('Unknown joint type string:', obj.$?.type,
 		    'setting to fixed');
       jt = jointTypeFromString.fixed;
     }
@@ -718,7 +735,7 @@ function sortJointsByHierarchy(urdfData) {
     }
   }
   if (orderedJoints.length !== urdfData.length) {
-    globalThis.__customLogger?.warn('Cycle detected or disconnected components in URDF joints');
+    ucl_logger?.warn('Cycle detected or disconnected components in URDF joints');
   }
   return orderedJoints;
 }
@@ -726,7 +743,7 @@ function sortJointsByHierarchy(urdfData) {
 function updateLeaves(a, b) {
   for (const key in b) {
     if (!(key in a)) {
-      globalThis.__customLogger?.debug('key in update.json:',key,' ignored');
+      ucl_logger?.debug('key in update.json:',key,' ignored');
       continue; // aに存在しないキーは無視
     }
     const bVal = b[key];
@@ -741,7 +758,7 @@ function updateLeaves(a, b) {
     ) {
       updateLeaves(aVal, bVal); // 両方オブジェクトなら再帰
     } else {
-      globalThis.__customLogger?.warn('key:',key,'val:',a[key],'is replaced by',bVal);
+      ucl_logger?.warn('key:',key,'val:',a[key],'is replaced by',bVal);
       a[key] = bVal; // 配列やオブジェクトでない値は上書き
     }
   }
