@@ -1,6 +1,6 @@
 {
   "name": "@ucl-nuee/ik-cd-worker",
-  "version": "0.4.2",
+  "version": "0.4.7",
   "publishConfig": {
     "access": "public"
   },
@@ -11,13 +11,16 @@
     "public/wasm/slrm_module.wasm",
     "public/ik_cd_worker.js",
     "scripts/copy-wasm.js",
-    "src/IkWorkerManager.js"
+    "src/IkWorkerManager.js",
+    "src/customLogger.js",
+    "src/IkWorkerParamsComponents.js"
   ],
   "type": "module",
   "bin": {
     "copy-wasm": "./scripts/copy-wasm.js"
   },
   "exports": {
+    "./customLogger.js": "./src/customLogger.js",
     "./IkWorkerParamsComponents.js": "./src/IkWorkerParamsComponents.js",
     "./IkWorkerManager.js": "./src/IkWorkerManager.js"
   },

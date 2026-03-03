@@ -499,6 +499,10 @@ self.onmessage = function(event) {
       }
     }
     break;
+  // case 'set_linear_velocity_limit':
+  // case 'set_angular_velocity_limit':
+  // case 'set_linear_gain':
+  // case 'set_angular_gain':
   case 'set_joint_velocity_limit':
     if (calcObj.state === st.generatorReady || calcObj.state === st.slrmReady) {
       if (data.velocityLimit !== undefined) {
@@ -568,6 +572,7 @@ self.onmessage = function(event) {
 function mainLoop(prevTime = performance.now()-calcObj.timeInterval) {
   const now = performance.now();
   const deltaTime = now - prevTime;
+  // ここにstepの上限をつけること。stepが長くなりすぎると速度フィードバックが破綻する
   calcObj.step(deltaTime / 1000); // time step in seconds
   if (shutdownFlag === true) {
     self.postMessage({type: 'shutdown_complete'});
