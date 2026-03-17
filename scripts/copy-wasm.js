@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import fs from 'fs';
 import path from 'path';
 const srcDir = path.resolve('node_modules/@ucl-nuee/ik-cd-worker/public');

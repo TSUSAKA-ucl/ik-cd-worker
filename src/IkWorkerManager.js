@@ -15,12 +15,19 @@ export default function IkWorkerManager({robotName,
 					 initialJoints,
 					 workerRef,
 					 workerData,
+					 cdWorkerRef={ready: false, el: null},
+					 // currentはworker本体,
+					 // readyはcd_workerの準備完了を表すフラグ,
+					 // readyがtrueになっていればcd workerはonmessageでchannelを受け取れる状態, falseならreadyイベントの発火を待つ
+					 // elはreadyイベントの発火元エンティティ。最低これを有効にしておかないとchannelの受け渡しができない可能性がある
 					 topicBridgeWebSocketURL})
 {
   if (workerRef.current !== null) {
     globalThis.__customLogger?.error("Worker already exists.Something is wrong.");
   } else {
     globalThis.__customLogger?.log('******** Creating a new ik-cd-worker for',robotName,'********');
+    // ik_workerに対応するchannelを作り、渡す。反対側は既に作成済のcd_workerにpostMessageする
+    channel = new MessageChannel();
     workerRef.current = new Worker('/ik_cd_worker.js', { type: 'module',
 							 name: robotName});
     globalThis.__customLogger?.debug("workerRef.current: ", workerRef.current);
@@ -28,6 +35,19 @@ export default function IkWorkerManager({robotName,
     workerRef.current.onmessage = (event) => {
       switch (event.data.type) {
       case 'ready': {
+	const channelTransferFunc = () => {
+	  cdWorkerRef.current.postMessage({ type: 'set_port',
+					    port: channel.port1,
+					    from: robotName},
+					  [channel.port1]);
+	  workerRef.current.postMessage({ type: 'set_port',
+					  port: channel.port2,
+					  to: robotName},
+					[channel.port2]);
+	};
+	if (cdWorkerRef.ready) { channelTransferFunc();	} else {
+	  cdWorkerRef.el?.addEventListener('cd-worker-ready', channelTransferFunc, { once: true });
+	}
 	const initMsg = { type: 'init',
 			  filename: robotName +'/'+'urdf.json',
 			  modifier: robotName +'/'+'update.json',
