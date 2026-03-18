@@ -167,6 +167,7 @@ self.onmessage = function(event) {
 	    ucl_logger?.debug('type of SlrmModule.CmdVelGen: '
 			  + typeof SlrmModule.CmdVelGenerator);
 	    cmdVelGen = new SlrmModule.CmdVelGenerator(jointModelVector);
+	    cmdVelGen.heapF64 = SlrmModule.HEAPF64;
 	    // ucl_logger?.debug("type of jointModels is ", typeof jointModels);
 	    jointModelsArray.forEach(model => model.delete());
 	    jointModelVector.delete();
@@ -218,6 +219,7 @@ self.onmessage = function(event) {
 	      gjkCd = new CdModule.CollisionDetection(jointModelVector,
 						      basePosition,
 						      baseOrientation);
+	      gjkCd.heapF64 = CdModule.HEAPF64;
 	      // jointModels.forEach(model => model.delete());
 	      jointModelVector.delete();
 	      jointModelsArray.forEach(model => model.delete());
@@ -250,6 +252,8 @@ self.onmessage = function(event) {
 		  }
 		  ucl_logger?.debug('setting up of link shapes is finished');
 		  gjkCd.infoLinkShapes();
+		  gjkCd.prepareStorage();
+
 		  // fetch test pairs from data.testPairs if exists
 		  if (!data.testPairs) {
 		    // const testPairs = [[0,2],[0,3],[0,4],[0,5],[0,6],[0,7],

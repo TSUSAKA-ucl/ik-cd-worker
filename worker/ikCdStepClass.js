@@ -130,8 +130,27 @@ class IkCdCalc {
   // ******** collision detection function ********
   detectCollisions(joints, result_collision) {
     if (!this.ignoreCollision && this.gjkCd) {
-      copyArrayToWasmVec(joints, this.jointPosition); // , this.cdModule);
-      this.gjkCd.calcFk(this.jointPosition);
+      // copyArrayToWasmVec(joints, this.jointPosition); // , this.cdModule);
+      // this.gjkCd.calcFk(this.jointPosition);
+      const ptr = this.cmdVelGen.getJointValuesBufferPtr();
+      const size = this.cmdVelGen.getJointValuesBufferSize();
+      const jointValuesWasm = new Float64Array(this.slrmModule.HEAPF64.buffer, ptr, size);
+      jointValuesWasm.set(joints);
+      this.cmdVelGen.calcFk0(); // this calls calcWTLinks() internally
+      // this.cmdVelGen.calcWTLinks();
+      const srcPtr = this.cmdVelGen.getWTLinksBufferPtr(); // std::vector<double> vec.data()
+      const srcSize = this.cmdVelGen.getWTLinksBufferSize(); // std::vector<double> vec.size()
+      const linkCoord = new Float64Array(this.slrmModule.HEAPF64.buffer, srcPtr, srcSize);
+      //
+      // this.gjkCd.notifyLinkCoordsSize(srcSize); // サイズはconstructor引数で固定しているので通知は不要
+      const destPtr = this.gjkCd.getWTLinksBufferPtr(); // std::vector<double> vec.data()
+      if (this.gjkCd.getWTLinksBufferSize() !== srcSize) {
+	ucl_logger?.error('GJK CD buffer size mismatch: expected', srcSize, 'but got', this.gjkCd.getLinkCoordBufferSize());
+	return 0;
+      }
+      const destArray = new Float64Array(this.cdModule.HEAPF64.buffer, destPtr, srcSize);
+      destArray.set(linkCoord);
+      this.gjkCd.notifyLinkCoordsUpdated();
       const resultPairs = this.gjkCd.testCollisionPairs();
       // struct UnsignedPair { unsigned int first, second; };
       // type of resultPairs is std::vector<UnsignedPair>

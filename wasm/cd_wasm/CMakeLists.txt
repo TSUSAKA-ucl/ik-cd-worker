@@ -43,6 +43,7 @@ target_link_options(cd_module PRIVATE
   "-msimd128"
   "-sMODULARIZE=1"
   "-sEXPORT_ES6=1"
+  "-sEXPORTED_RUNTIME_METHODS=['HEAPF64']"
   "-sENVIRONMENT=web,worker,node"
   #  "-sEXPORT_NAME=CdModule"
   "-sWASM=1"

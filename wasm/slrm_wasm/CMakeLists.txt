@@ -40,6 +40,7 @@ target_link_options(slrm_module PRIVATE
   "-msimd128"
   "-sMODULARIZE=1"
   "-sEXPORT_ES6=1"
+  "-sEXPORTED_RUNTIME_METHODS=['HEAPF64']"
   "-sENVIRONMENT=web,worker"
   "-sWASM=1"
   "--bind"
