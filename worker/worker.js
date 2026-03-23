@@ -181,7 +181,9 @@ self.onmessage = function(event) {
 	    }
 
 	    // prepare the main loop object
-	    const revolutes = urdfData.filter(obj => obj.$.type === 'revolute');
+	    const revolutes = urdfData.filter(obj =>
+	      obj.$.type === 'revolute' || obj.$.type === 'continuous'
+	    );
 	    calcObj.prepareVectors(revolutes.length, 16);
 	    calcObj.prepareCmdVelGen(cmdVelGen);
 	    // joint limitsの設定
