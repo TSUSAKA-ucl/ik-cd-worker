@@ -1,3 +1,20 @@
+# ik-worker, cd-worker分離
+## main
+1. new Worker('ik-worker.js')
+2. new MessageChannel()
+3. onmessage: case 'ready':  
+   1. post "set_port" channel.port1 to cd-worker
+   2. post "set_port" channel.port2 to ik-worker
+   3. post initMsg to ik-worker
+   よってik-workerは、initMsgを受け取った時には既にport1を持っているはず
+
+## ik-worker
+1. `set_port`メッセージを受けてcdWorker用portをselfに付ける
+2. `init`で`linkShapes`を解析してTypedArrayにしてcdWorkerにpost
+
+## cd-worker
+
+
 # workerがonMessageで受け取る移動命令毎の動作
 
 * `set_initial_joints`: これが呼ばれないとmain stateが`slrm_ready`に

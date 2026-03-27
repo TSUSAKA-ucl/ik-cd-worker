@@ -1,0 +1,24 @@
+@startuml
+map "ab layer" as ab {
+ base_link *-> rb:rb0_1
+ link_1 *--> rb:rb1_1
+ link_2 *--> rb:rb1_2
+ .. => ..
+ link_1 *--> rb:rbn_3
+}
+map "rb layer" as rb {
+    rb0_1 *--> sa:sa0_1
+    rb0_2 *--> sa:sa0_2
+    rb1_1 *--> sa:sa1_1
+    rb1_2 *--> sa:sa1_1
+    .. => ..
+    rbn_3 *--> sa:san_3
+}
+map "sa layer" as sa {
+    sa0_1 =>
+    sa0_2 =>
+    sa1_1 =>
+    .. => ..
+    san_3 =>
+}
+@enduml

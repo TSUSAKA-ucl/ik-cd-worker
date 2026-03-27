@@ -1,0 +1,18 @@
+@startuml
+object "<u>myBlock : MemoryBlock</u>" as A {
+  address = 0x1000
+  value = 0xFF
+}
+object "Memory Block" as m {
+  offset 0x00 : Data A
+  .. <中略> ..
+  offset 0xFF : Data Z
+}
+map "Large Array" as B {
+  0 => 0x11
+  1 => 0x22
+  .. => ..
+  255 => 0x99
+}
+
+@enduml

@@ -39,8 +39,7 @@ class IkCdCalc {
     this.ignoreJointLimits = false; // ジョイントリミットを無視するかどうか
     // ******** wasm objects (set by the onmessage handler) ********
     this.cmdVelGen = null;
-    this.cdPort = null;
-    this.sequence = 0;
+    this.gjkCd = null;
     // ******** control parameters ********
     this.counter = 0n;
     this.jMoveGain = 10.0; // joint move command gain
@@ -118,30 +117,19 @@ class IkCdCalc {
     if (this.emptyEndLinkPose) this.emptyEndLinkPose.delete();
     if (this.limitFlagsWasm) this.limitFlagsWasm.delete();
   }
-  prepareGjkCd(port) {
-    this.cdPort = port;
-    this.cdPort.onmessage = (event) => {
-      // 以下のpostMessageのコマンドを受け取る予定
-      // port.postMessage({ command: 'query_ab_id_response',
-      // 			 abId: abId});
-      // self.channel[abId].postMessage({ command: 'collision_pairs',
-      // 				       sequence: collidingAbIds[i + 1],
-      // 				       rbIds: abCollisionRbIds});
-      switch (event.data.command) {
-      case 'query_ab_id_response':
-	this.abId = event.data.abId;
-	ucl_logger?.log('Received abId from cdWorker:', this.abId);
-	break;
-      case 'collision_pairs':
-	
+  prepareGjkCd(wasmObj, wasm=this.cdModule) {
+    this.gjkCd = wasmObj;
+    this.cdModule = wasm;
+    this.jointPosition = new wasm.DoubleVector();
+    this.jointPosition.resize(this.joints.length,0);
+    // this.jointVecと同じだがWASMモジュールが異なる
   }
   deleteGjkCd() {
+    if (this.jointPosition) this.jointPosition.delete();
   }
   // ******** collision detection function ********
-  // detectCollisions(joints, result_collision) {
-  // cd_workerに干渉チェック対象の剛体の位置姿勢を送る
-  sendLinkCoordsToCd(joints) {
-    if (!this.ignoreCollision && this.cdPort) {
+  detectCollisions(joints, result_collision) {
+    if (!this.ignoreCollision && this.gjkCd) {
       // copyArrayToWasmVec(joints, this.jointPosition); // , this.cdModule);
       // this.gjkCd.calcFk(this.jointPosition);
       const ptr = this.cmdVelGen.getJointValuesBufferPtr();
@@ -150,25 +138,11 @@ class IkCdCalc {
       jointValuesWasm.set(joints);
       this.cmdVelGen.calcFk0(); // this calls calcWTLinks() internally
       // this.cmdVelGen.calcWTLinks();
-      const srcPtr = this.cmdVelGen.getWTLinksBufferPtr();
-      const srcSize = this.cmdVelGen.getWTLinksBufferSize();
+      const srcPtr = this.cmdVelGen.getWTLinksBufferPtr(); // std::vector<double> vec.data()
+      const srcSize = this.cmdVelGen.getWTLinksBufferSize(); // std::vector<double> vec.size()
       const linkCoord = new Float64Array(this.slrmModule.HEAPF64.buffer, srcPtr, srcSize);
-      //受信側
-      // switch (event.data.command) {
-      // case 'rb_poses':
-      //   rbCoordsUpdated(event.data.abId, event.data.sequence,
-      // 		      event.data.poses);
-      const copiedLinkCoord = linkCoord.slice();
-      this.cdPort.postMessage({ command: 'rb_poses',
-				abId: this.abId,
-				sequence: this.sequence,
-				poses: copiedLinkCoord
-			      }, [copiedLinkCoord.buffer]);
-    }
-
-
-
-
+      //
+      // this.gjkCd.notifyLinkCoordsSize(srcSize); // サイズはconstructor引数で固定しているので通知は不要
       const destPtr = this.gjkCd.getWTLinksBufferPtr(); // std::vector<double> vec.data()
       if (this.gjkCd.getWTLinksBufferSize() !== srcSize) {
 	ucl_logger?.error('GJK CD buffer size mismatch: expected', srcSize, 'but got', this.gjkCd.getLinkCoordBufferSize());
@@ -267,7 +241,6 @@ class IkCdCalc {
 
   // ***** main function called in each loop *****
   step(timeStep) {
-    this.sequence++;
     if (this.subState === sst.dormant) return;
     if (!this.slrmModule) return;
     let noDestination = this.noDestination;

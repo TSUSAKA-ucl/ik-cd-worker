@@ -25,22 +25,26 @@ export default function IkWorkerManager({robotName,
   if (workerRef.current !== null) {
     globalThis.__customLogger?.error("Worker already exists.Something is wrong.");
   } else {
-    globalThis.__customLogger?.log('******** Creating a new ik-cd-worker for',robotName,'********');
+    globalThis.__customLogger?.log('******** Creating a new ik-worker for',robotName,'********');
+    if (entity?.sceneEl) {
+      // cd workerがなければ作ってsceneElにつけ cdWorkerRefをセットする
+      // cd workerが既にあれば cdWorkerRefをセットする
+    }
     // ik_workerに対応するchannelを作り、渡す。反対側は既に作成済のcd_workerにpostMessageする
     channel = new MessageChannel();
-    workerRef.current = new Worker('/ik_cd_worker.js', { type: 'module',
-							 name: robotName});
+    workerRef.current = new Worker('/ik_worker.js', { type: 'module',
+						      name: robotName});
     globalThis.__customLogger?.debug("workerRef.current: ", workerRef.current);
     let isWaitingEndState = true;
     workerRef.current.onmessage = (event) => {
       switch (event.data.type) {
       case 'ready': {
 	const channelTransferFunc = () => {
-	  cdWorkerRef.current.postMessage({ type: 'set_port',
+	  cdWorkerRef.current.postMessage({ type: 'add_port',
 					    port: channel.port1,
 					    from: robotName},
 					  [channel.port1]);
-	  workerRef.current.postMessage({ type: 'set_port',
+	  workerRef.current.postMessage({ type: 'cd_port',
 					  port: channel.port2,
 					  to: robotName},
 					[channel.port2]);

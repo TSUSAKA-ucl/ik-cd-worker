@@ -1,0 +1,12 @@
+@startuml
+map "rb layer" as rb {
+    rb0_1 =>
+    rb0_2 =>
+    rb1_1 =>
+    rb1_2 =>
+    rbn_3 =>
+}
+map "ab layer" as ab {
+ base_link *-> rb::rb0_1
+}
+@enduml
