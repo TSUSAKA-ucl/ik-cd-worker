@@ -9,6 +9,20 @@ globalThis.__customLogger = customLogger;
 const ucl_logger = globalThis.__customLogger;
 // const ucl_logger = customLogger;
 
+import { RewindQueue} from './rewindQueue.js';
+// class RewindQueue {
+//   constructor (queueMaxSize, initialElement) 
+//   newestResult; // 最新結果。collisionPairsの場合はArray of [i,j]
+//   newestSeq;
+//   // enqueue(element) // jointsをキューしておく
+//   // getOnmessageHandler() これが返す(seq,data)=>{}の関数をonmessageで解析した後に呼ぶ
+//   // getRewindElement() // 最新結果がNG(collided)のときに戻るjoints(subarray)を返す
+//   // getLastSeq() // 最後にqueueされたelementのseq番号
+
+
+
+
+
 function copyArrayToWasmVec(jsArray, emVec) { // , wasmModule) {
   for (let i = 0; i < emVec.size(); ++i) {
     emVec.set(i, jsArray[i]);
@@ -119,29 +133,34 @@ class IkCdCalc {
     if (this.limitFlagsWasm) this.limitFlagsWasm.delete();
   }
   prepareGjkCd(port) {
+    this.rewindQueue = new RewindQueue(100, this.joints);
+    const setNewData = this.rewindQueue.getOnmessageHandler();
     this.cdPort = port;
     this.cdPort.onmessage = (event) => {
-      // 以下のpostMessageのコマンドを受け取る予定
-      // port.postMessage({ command: 'query_ab_id_response',
-      // 			 abId: abId});
-      // self.channel[abId].postMessage({ command: 'collision_pairs',
-      // 				       sequence: collidingAbIds[i + 1],
-      // 				       rbIds: abCollisionRbIds});
       switch (event.data.command) {
       case 'query_ab_id_response':
 	this.abId = event.data.abId;
 	ucl_logger?.log('Received abId from cdWorker:', this.abId);
 	break;
       case 'collision_pairs':
-	
+	setNewData(event.data.sequence, event.data.rbIds);
+	break;
+      default:
+	ucl_logger?.warn('Unknown command received in cdPort:',
+			 event.data.command);
+	break;
+      }
   }
   deleteGjkCd() {
   }
+
   // ******** collision detection function ********
   // detectCollisions(joints, result_collision) {
   // cd_workerに干渉チェック対象の剛体の位置姿勢を送る
   sendLinkCoordsToCd(joints) {
-    if (!this.ignoreCollision && this.cdPort) {
+    if (!this.ignoreCollision &&
+	this.cdPort &&
+	this.abId !== undefined) {
       // copyArrayToWasmVec(joints, this.jointPosition); // , this.cdModule);
       // this.gjkCd.calcFk(this.jointPosition);
       const ptr = this.cmdVelGen.getJointValuesBufferPtr();
@@ -164,11 +183,19 @@ class IkCdCalc {
 				sequence: this.sequence,
 				poses: copiedLinkCoord
 			      }, [copiedLinkCoord.buffer]);
+      this.sequence++;
     }
 
+    // joints(ジョイント値)がIKで計算された後、衝突検出のために
+    // リンクの位置姿勢(IKのWASMが計算)をGJK CDのWASMに渡しす。
+    // 過去のjointsから計算された衝突ペアの最新値を調べ、衝突していたら
+    // 衝突していない一番最近のjointsをrewindQueueからとりだし
+    // (getRewindElememt)てそこまでrewindする
+    // rewindQueueは初期化時に干渉していないjointsを1個目の値として入れてある
+    // ため、getRewindElementは必ず干渉していないjointsを取り出すことができる
+    // rewindQueueのnewestResultが[]かどうか調べて、[]ならは干渉無し
 
-
-
+    detectColletions() {
       const destPtr = this.gjkCd.getWTLinksBufferPtr(); // std::vector<double> vec.data()
       if (this.gjkCd.getWTLinksBufferSize() !== srcSize) {
 	ucl_logger?.error('GJK CD buffer size mismatch: expected', srcSize, 'but got', this.gjkCd.getLinkCoordBufferSize());
@@ -267,7 +294,6 @@ class IkCdCalc {
 
   // ***** main function called in each loop *****
   step(timeStep) {
-    this.sequence++;
     if (this.subState === sst.dormant) return;
     if (!this.slrmModule) return;
     let noDestination = this.noDestination;

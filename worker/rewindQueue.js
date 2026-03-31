@@ -27,18 +27,27 @@
 
 // const rqueue = new RewindQueue(32);
 //  
+
+// elementはqueueするもの
+// newestResultはonmessageで受けた最新のデータ(elementとは別物)
+// newestSeqは同最新受信データのシーケンス番号のコピー
+// seqは、このクラスオブジェクト内で管理する
+// 操作はFloat64のTypedArrayの一部分へのwrite/readで行う
+// 
 class RewindQueue {
-  collisionPairs; // collisionPairsはArray of [i,j] (i,jは衝突している剛体のindex)
-  collisionPairsSeq; // collisionPairsのseq番号
-  // postEnqueue(rigidBodyCoords, element)
+  newestResult; // collisionPairsの場合はArray of [i,j]
+  newestSeq;
+  // enqueue(element)
+  // getOnmessageHandler()
   // getRewindElement()
+  // getLastSeq() // 最後にqueueされたelementのseq番号
   #queueBody;
   #queueMaxSize;
   #elementSize;
   #front = 0;
   #seq = 0;
   #rear;
-  constructor (channel, queueMaxSize, initialElement) {
+  constructor (queueMaxSize, initialElement) {
     const elementSize = initialElement.length+1;
     this.#queueBody = new Float64Array(queueMaxSize * elementSize);
     // (+1はseq番号の分)
@@ -49,16 +58,16 @@ class RewindQueue {
     this.#queueBody[0] = this.#seq; // 最初の状態量はOKでseq=0
     this.#queueBody.set(initialElement, 1);
     this.#rear = elementSize; // rearは次に積む位置を指す
-    this.channel = channel;
-    // onmessage handlerはこの内部で定義する
-    this.channel.onmessage = (event) => {
-      const msg = event.data;
-      this.#cleanUpQueue(msg.seq, msg.data.size === 0);
-      this.collisionPairs = msg.data;
-      this.collisionPairsSeq = msg.seq;
+    this.newestResult = [];
+    this.newestSeq = 0;
+  }
+  getOnmessageHandler() {
+    // onmessageのスロットデコードで該当したときに呼ぶべき関数
+    return (sequence, data) => {
+      this.#cleanUpQueue(sequence, data.size === 0);
+      this.newestResult = data;
+      this.newestSeq = sequence;
     };
-    this.collisionPairs = [];
-    this.collisionPairsSeq = 0;
   }
   #stepIndex (index) {
     index += this.#elementSize;
@@ -74,20 +83,14 @@ class RewindQueue {
     }
     return index;
   }
-  // rigidBodyCoordsとelementは対応していてelementだけseqを付けてrewind queueに積み
-  // rigidBodyCoordsだけをseqをつけてpostMessageする
-  postEnqueue(rigidBodyCoords, // Float64Array ((elementSize+2)*16)
-	      element) { // Float64Array (elementSize)
+  // element(だけseqを付けてrewind queueに積み
+  enqueue(element) { // Float64Array (elementSize)
     this.#seq++;
     if (this.#rear !== this.#front) { // queueが満員ならばqueueしない
       this.#queueBody[this.#rear] = this.#seq;
       this.#queueBody.set(element, this.#rear+1);
       this.#rear = this.#stepIndex(this.#rear);
     }
-    this.channel.postMessage({
-      seq: this.#seq,
-      data: rigidBodyCoords // rigidBodyCoordsはWASM memory mapなので必ずコピーする
-    });
   }
   // 4.5. 7.8.9. ik-workerがcd-workerからの回答を処理するための関数
   #searchSeq (seq) {

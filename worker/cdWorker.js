@@ -190,7 +190,7 @@ function rbCoordsUpdated(abId, sequence, poses) {
   // WASMのTypedArrayに座標をコピーして、更新を通知する
   // サイズはaddLinkShape2でWASM側に通知済で固定している
   const srcSize = poses.length;
-  const destPtr = self.gjkCd.getLinkCoordBufferPtr(abId);
+  const destPtr = self.gjkCd.getWTLinksBufferPtr(abId);
   if (self.gjkCd.getLinkCoordBufferSize(abId) !== srcSize) {
     ucl_logger?.error('GJK CD buffer size mismatch: expected', srcSize,
 		      'but got', self.gjkCd.getLinkCoordBufferSize(abId));

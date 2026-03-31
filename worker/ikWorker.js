@@ -260,7 +260,6 @@ self.onmessage = function(event) {
 						 packed.rbLayer.buffer,
 						 packed.saLayer.buffer,
 						 packed.vertices.buffer]);
-		  calcObj.prepareGjkCd(this.cdWorkerPort);
 		})
 		.catch(error => {
 		  ucl_logger?.error('Error fetching or parsing SHAPE file:',
@@ -293,6 +292,7 @@ self.onmessage = function(event) {
       const joints = new Float64Array(data.joints.length);
       joints.set(data.joints);
       calcObj.joints = joints;
+      calcObj.prepareGjkCd(this.cdWorkerPort); // jointsが必要
       const initialJoints = joints.slice();
       calcObj.initialjoints = initialJoints;
       calcObj.prevJoints = joints.slice();
