@@ -53,30 +53,50 @@ function main() {
     }
   };
 
+  // ************************************************
   // collision detectionのループを開始する
   const gjkCd = self.gjkCd;
   const loop = () => {
+    newestSequence.forEach((seq, abId) => {
+      if (typeof seq === 'number' &&
+	  typeof newestPoses[abId] !== 'undefined') {
+	rbCoordsUpdated(abId, seq, newestPoses[abId]);
+      }
+    });
+    // rbCoords有無はWASM側で管理する。rbCoordsが有るabはWASM内で正の
+    // seq番号を持つことにして、無いabはseqを負の値にする。これで、
+    // WASM側でrbCoordsが更新されたabだけを衝突判定するようにでき、
+    // rbCoordsUpdatedを最小限に抑えられる
+    newestSequence.length = 0;
+    newestPoses.length = 0;
+    // WASM側で衝突判定を行う。結果はWASM内のバッファに書き込まれる
     gjkCd.testCollisionPairs2();
     const collidingAbIdsPtr = gjkCd.getCollidingAbIdsBufferPtr();
     const collidingAbIdsSize = gjkCd.getCollidingAbIdsBufferSize();
     const collidingAbIds = new Int32Array(self.CdModule.HEAP32.buffer,
 					  collidingAbIdsPtr,
 					  collidingAbIdsSize);
+    // abはik-workerと一対一に対応していて、個々に固有のseq番号がある
     // collidingAbIdsの中身はabIDとsequenceが交互にならんでいる
+
+    const collisionPairsPtr = gjkCd.getCollisionPairsBufferPtr();
+    const collisionPairsSize = gjkCd.getCollisionPairsBufferSize();
+    const collisionPairs = new Int32Array(self.CdModule.HEAP32.buffer,
+					  collisionPairsPtr,
+					  collisionPairsSize);
+    // 干渉している全rbIdのペアの配列。中身はrbId(通し番号)が交互に並んでいる
+
+    // ab毎に必要なrbIdを抽出して、abIdとsequenceとともにik-workerに送る
     for (let i = 0; i < collidingAbIdsSize; i += 2) {
       const abId = collidingAbIds[i];
       const rbIdOffsetMin = gjkCd.queryRbIdOffset(abId);
       const rbIdOffsetMax = rbIdOffsetMin + gjkCd.queryRbLength(abId);
-      const collisionPairsPtr = gjkCd.getCollisionPairsBufferPtr(abId);
-      const collisionPairsSize = gjkCd.getCollisionPairsBufferSize(abId);
-      const collisionPairs = new Int32Array(self.CdModule.HEAP32.buffer,
-					    collisionPairsPtr,
-					    collisionPairsSize);
       const abCollisionRbIds = [];
       for (let j = 0; j < collisionPairsSize; j++) {
 	const rbId1 = collisionPairs[j];
 	if (rbIdOffsetMin <= rbId1 && rbId1 < rbIdOffsetMax) {
-	  abCollisionRbIds.push(rbId1);
+	  // ここでrbIdをab内の相対的な0オリジンのIDに変換し旧版と互換にする
+	  abCollisionRbIds.push(rbId1 - rbIdOffsetMin);
 	}
       }
       self.channel[abId].postMessage({ command: 'collision_pairs',
@@ -119,8 +139,10 @@ function cleanupAb(abId, memory=true) {
     }
   }
 }
- 
-// onmessageハンドラーをportに取り付ける関数
+
+// onmessageハンドラーをportに取り付ける関数。newestSequenceとnewestPosesは、座標更新のコマンドを受け取ったときに、abIdごとに最新のseq番号と座標を保存しておくためのオブジェクト。
+const newestSequence = [];
+const newestPoses = [];
 function attachOnMessageHandler(port) {
   port.onmessage = async (event) => {
     switch (event.data.command) {
@@ -140,9 +162,13 @@ function attachOnMessageHandler(port) {
 			 abId: abId});
     }
       break;
-    case 'rb_poses':
-      rbCoordsUpdated(event.data.abId, event.data.sequence,
-		      event.data.poses);
+    case 'rb_poses': {
+      const abId = portToId(port);
+      if (typeof abId === 'number') { // abIdは必ず数値だが、念のため
+	newestSequence[abId] = event.data.sequence;
+	newestPoses[abId] = event.data.poses;
+      }
+    }
       break;
     default:
       break;
@@ -190,16 +216,16 @@ function rbCoordsUpdated(abId, sequence, poses) {
   // WASMのTypedArrayに座標をコピーして、更新を通知する
   // サイズはaddLinkShape2でWASM側に通知済で固定している
   const srcSize = poses.length;
-  const destPtr = self.gjkCd.getWTLinksBufferPtr(abId);
-  if (self.gjkCd.getLinkCoordBufferSize(abId) !== srcSize) {
+  const destPtr = self.gjkCd.getWTLinksBufferPtr2(abId);
+  if (self.gjkCd.getWTLinksBufferSize2(abId) !== srcSize) {
     ucl_logger?.error('GJK CD buffer size mismatch: expected', srcSize,
-		      'but got', self.gjkCd.getLinkCoordBufferSize(abId));
+		      'but got', self.gjkCd.getWTLinksBufferSize2(abId));
     return;
   }
   const destArray = new Float64Array(self.CdModule.HEAPF64.buffer,
 				     destPtr, srcSize);
   destArray.set(poses);
-  self.gjkCd.notifyLinkCoordsUpdated(abId, sequence);
+  self.gjkCd.notifyLinkCoordsUpdated2(abId, sequence);
 }
 
 main();

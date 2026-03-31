@@ -30,13 +30,15 @@
 	して`gjkCd.addLinkShape()`する。このとき先頭のindexと
 	articulated bodyのidは対応させる。
 
-## mainの処理内容とWASMとのやりとり
+## cd-worker-main-loopの処理内容とWASMとのやりとり
  最速4msec周期で、gjkCd WASMモジュールで`testCollisionPairs2()`を呼び、
  衝突ペアをabID毎に分割して各motion workerに送るループ
 
 `testCollisionPairs2()`は重く不定時間なので`setInterval`でなく、
-`setTimeout`で呼び出し、呼び終わったらすぐ次を呼ぶ形にする  
-WASMで、ab毎に関係するrbが含まれる衝突ペアを分類してHEAPにセットする  
+`setTimeout`で呼び出し、呼び終わったらすぐ次を呼ぶ形(`setTimeout(loop,4)`)に
+する  
+
+WASMで、ab毎に、関係するrbが含まれる衝突ペアを分類して、HEAPにセットする  
 rbは、全abで通し番号のIDを持っているが、ab毎に固まって範囲が決まっている  
 基本的に一つのab内でのrbの数は変化しないが面倒なのでサイズもWASMから取得可能とする  
 WASMにqueryすると各abに対応するrb番号のオフセット(最初の値)が得られる  

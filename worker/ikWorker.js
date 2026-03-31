@@ -146,7 +146,10 @@ self.onmessage = function(event) {
 	    }
 
 	    // prepare the main loop object
-	    const revolutes = urdfData.filter(obj => obj.$.type === 'revolute');
+	    const revolutes = urdfData.filter(obj =>
+	      obj.$.type === 'revolute' ||
+	      obj.$.type === 'continuous'
+	    );
 	    calcObj.prepareVectors(revolutes.length, 16);
 	    calcObj.prepareCmdVelGen(cmdVelGen);
 	    // joint limitsの設定
@@ -192,19 +195,18 @@ self.onmessage = function(event) {
 		  }
 		  // linkShapesは、[[[[x,y,z], ...], ...], ...]のような構造で、最初の[]は全体、
 		  // 次の[]は各リンク(rb層でsa層と1対1)、次の[]は各ch層、最後の[]はch層内の頂点(x,y,z)を表す
-		  // ab層、rb層、sa層、ch層の4段でch層は3xFloat64の配列(vertices)
-		  // ここでlinkShapeオブジェクトがab層(rootに対応している)
-		  // 最終的に、ab層(rb層のindexのパック)とrb層(複数のrb層要素(sa層idx)をパックしたもの)と
-		  // sa層(複数のch層(float64 arrayのindexをパックしたもの)を作る
+		  // rb層、sa層、ch層の3段でch層は3xFloat64の配列(vertices)
 		  const vertices = []; // あとで3xFloat64 arrayに変換する
-		  const rbOffsets = new Int32Array(linkShapes.length);
+		  const rbDataArray = new Int32Array(linkShapes.length);
+		  const saOffsets = [];
 		  const chOffsets = []; // ch層の開始位置を保存する配列
 		  let rbIndex = 0;
 		  let chIndex = 0;
 
 		  for (let i = 0; i < linkShapes.length; ++i) {
 		    // 当面 linkShapesにはsa層がなくrb層と一対一に対応させる
-		    rbOffsets[i] = rbIndex;
+		    rbDataArray[i] = i;
+		    saOffsets.push(rbIndex);
 		    rbIndex += linkShapes[i].length;
 		    for (let j = 0; j < linkShapes[i].length; ++j) {
 		      chOffsets.push(chIndex);
@@ -221,17 +223,14 @@ self.onmessage = function(event) {
 		    }
 		  }
 		  // rb層とsa層(index)と頂点データのTypedArrayを作る
-		  // rb層とsa層はここでは1対1のためrb層は単なる0...Nの整数列になる
-		  const saDataArray = new Int32Array(chOffsets);
-		  const rbDataArray = new Int32Array(chOffsets.length);
-		  for (let i=0; i<chOffsets.length; i++) {
-		    rbDataArray[i] = i;
-		  }
+		  // rb層とsa層はここでは1対1のためrbOffsetsは0...Nの整数列
+		  const saDataArray = new Int32Array(saOffsets);
+		  const chDataArray = new Int32Array(chOffsets);
 		  const verticesArray = new Float64Array(vertices);
 		  const packed = {
-		    abLayer: rbOffsets, // abLayer===rbOffsets
-		    rbLayer: rbDataArray, // rbLayer===saOffsets
-		    saLayer: saDataArray, // saLayer===chOffsets
+		    abLayer: rbDataArray, // abLayer===rbOffsets
+		    rbLayer: saDataArray, // rbLayer===saOffsets
+		    saLayer: chDataArray, // saLayer===chOffsets
 		    vertices: verticesArray, // 頂点データのTypedArray
 		  };
 
@@ -292,7 +291,10 @@ self.onmessage = function(event) {
       const joints = new Float64Array(data.joints.length);
       joints.set(data.joints);
       calcObj.joints = joints;
-      calcObj.prepareGjkCd(this.cdWorkerPort); // jointsが必要
+      if (self.cdWorkerPort) {
+	// prepareGjkCdの前にcalcObj.jointsのセットが必要
+	calcObj.prepareGjkCd(self.cdWorkerPort);
+      }
       const initialJoints = joints.slice();
       calcObj.initialjoints = initialJoints;
       calcObj.prevJoints = joints.slice();
