@@ -131,11 +131,8 @@ function cleanupAb(abId, memory=true) {
       // delete self.channel[abId];
     }
     if (memory) {
-      // WASMからabIdに対応するバッファを解放してもらう
-      self.CdModule.ab_free(abId);
-      self.CdModule.rb_free(abId);
-      self.CdModule.sa_free(abId);
-      self.CdModule.vertex_free(abId);
+      // WASMのg_ab_objects_からabIdに対応するデータを削除する。
+      // self.CdModule.ab_remove(abId);
     }
   }
 }
@@ -180,33 +177,41 @@ function attachOnMessageHandler(port) {
 // link shapeのデータを受け取る。
 function registerLinkShapes(abId, packedData) {
   // WASMにバッファを確保させそのアドレスをもらう
+  // alloc, freeはextern "C"関数の直接呼び出し
+  // length+1の+1は下のlayerの最後のindexを入れる場所。
   const packed = packedData;
-  const abPointer = self.CdModule.ab_alloc(packed.abLayer.length, abId);
+  const abPointer = self.CdModule._ab_alloc(packed.abLayer.length+1);
   const abLayer = new Int32Array(self.CdModule.HEAP32.buffer,
 				 abPointer,
-				 packed.abLayer.length);
+				 packed.abLayer.length+1);
   abLayer.set(packed.abLayer);
-  const rbPointer = self.CdModule.rb_alloc(packed.rbLayer.length, abId);
+  abLayer[packed.abLayer.length] = packed.rbLayer.length; // abLayerの最後のindexにrbLayerの長さを入れる。これで、WASM側で最後のrbの長さを知ることができる
+  const rbPointer = self.CdModule._rb_alloc(packed.rbLayer.length+1);
   const rbLayer = new Int32Array(self.CdModule.HEAP32.buffer,
 				 rbPointer,
-				 packed.rbLayer.length);
+				 packed.rbLayer.length+1);
   rbLayer.set(packed.rbLayer);
-  const saPointer = self.CdModule.sa_alloc(packed.saLayer.length, abId);
+  rbLayer[packed.rbLayer.length] = packed.saLayer.length;
+  const saPointer = self.CdModule._sa_alloc(packed.saLayer.length+1);
   const saLayer = new Int32Array(self.CdModule.HEAP32.buffer,
 				 saPointer,
-				 packed.saLayer.length);
+				 packed.saLayer.length+1);
   saLayer.set(packed.saLayer);
+  saLayer[packed.saLayer.length] = packed.vertices.length;
   // convex hullの頂点座標はfloat64で渡すためdoubleのバッファも確保してもらう
-  const chPointer = self.CdModule.vertex_alloc(packed.vertices.length,
-					       abId);
+  const chPointer = self.CdModule._vertex_alloc(packed.vertices.length);
   const chLayer = new Float64Array(self.CdModule.HEAPF64.buffer,
 				   chPointer,
 				   packed.vertices.length);
   chLayer.set(packed.vertices);
   // base座標系はab登録時には特に渡さない。各rbのposeを渡す時にその値に含ませる
-  // WASMに登録
-  self.gjkCd.addLinkShape2(abId, abLayer.length, rbLayer.length,
-			   saLayer.length, chLayer.length / 3);
+  // abId番のabとしてWASMに登録
+  self.CdModule._addLinkShape2(abId);
+  // addLinkShape2したらallocしたバッファは不要になるためfreeする。
+  self.CdModule._ab_free();
+  self.CdModule._rb_free();
+  self.CdModule._sa_free();
+  self.CdModule._vertex_free();
 }
 
 // WASMにrbの座標が更新されたことを通知する関数。articulated body idと
