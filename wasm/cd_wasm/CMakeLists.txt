@@ -16,7 +16,8 @@ add_executable(cd_module
   ${SLRM_SOURCE_DIR}/create_models_from_js.cpp
   ${SLRM_SOURCE_DIR}/log_functions_for_js.cpp
   gjk_worker/src/bindings.cpp
-)  
+  gjk_worker/src/link_shapes_interface.cpp
+)
 target_include_directories(cd_module
   PUBLIC ${CMAKE_SOURCE_DIR}/../external/eigen
   PUBLIC ${CMAKE_SOURCE_DIR}/../slrm_wasm/moveit_jacobian/src
@@ -43,7 +44,7 @@ target_link_options(cd_module PRIVATE
   "-msimd128"
   "-sMODULARIZE=1"
   "-sEXPORT_ES6=1"
-  "-sEXPORTED_RUNTIME_METHODS=['HEAPF64']"
+  "-sEXPORTED_RUNTIME_METHODS=['HEAPF64','HEAP32']"
   "-sENVIRONMENT=web,worker,node"
   #  "-sEXPORT_NAME=CdModule"
   "-sWASM=1"
