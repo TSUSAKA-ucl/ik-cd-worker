@@ -26,6 +26,8 @@ export default async function IkWorkerManager({robotName,
     globalThis.__customLogger?.error("Worker already exists.Something is wrong.");
   } else {
     globalThis.__customLogger?.log('******** Creating a new ik-worker for',robotName,'********');
+    // sceneElが存在してcd workerが存在しない場合は無条件でcd workerを作る。
+    // ただし、ik workerからlink_shapes commandが来なければ何も計算しない
     // sceneElが無ければcd workerもchannelも作れないが、ik workerは作れる
     // sceneEl.system.cdWorkerが無ければ、cd workerは生成済でないため、cd workerを作る。
     // cd workerを作成したらsceneEl.systemにセットして、cd_worker_readyメッセージを待つ

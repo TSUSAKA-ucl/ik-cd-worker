@@ -65,6 +65,11 @@ self.onmessage = function(event) {
       calcObj.deleteSlrm();
       SlrmModule.delete(); // WASMモジュールを解放
     }
+    // cd-workerに該当するabを削除するように指示を出す必要がある
+    // 現在、cdWorker.jsとlink_shapes_interface.cpp側がサポートしていない
+    // if (self.cdWorkerPort) {
+    //   self.cdWorkerPort.postMessage({command: 'remove_ab'});
+    // }
     self.postMessage({type: 'shutdown_complete'});
     shutdownFlag = true; // workerを終了するフラグを立てる
     break;
