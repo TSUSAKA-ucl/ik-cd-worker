@@ -121,12 +121,18 @@ class IkCdCalc {
     if (this.emptyEndLinkPose) this.emptyEndLinkPose.delete();
     if (this.limitFlagsWasm) this.limitFlagsWasm.delete();
   }
-  prepareGjkCd(port) {
+
+  prepareRewindQueue() {
+    ucl_logger?.warn('Preparing rewind queue for collision detection');
     this.rewindQueue = new RewindQueue(100, this.joints);
-    const setNewData = this.rewindQueue.getOnmessageHandler();
+    this.setNewData = this.rewindQueue.getOnmessageHandler();
     // rewindQueueはonmessage handlerによって常に先頭は直近のrewind可能な
     // joint値になっているがmessageが来ない場合は更新されない
     // その場合はnewestResultも[]になったまま変わらない
+  }
+
+  prepareGjkCd(port) {
+    ucl_logger?.warn('Preparing GJK Collision Detection with port:', port);
     this.cdPort = port;
     this.cdPort.onmessage = (event) => {
       switch (event.data.command) {
@@ -135,7 +141,7 @@ class IkCdCalc {
 	ucl_logger?.log('Received abId from cdWorker:', this.abId);
 	break;
       case 'collision_pairs':
-	setNewData(event.data.sequence, event.data.rbIds);
+	this.setNewData(event.data.sequence, event.data.rbIds);
 	break;
       default:
 	ucl_logger?.warn('Unknown command received in cdPort:',
@@ -250,6 +256,7 @@ class IkCdCalc {
   step(timeStep) {
     if (this.subState === sst.dormant) return;
     if (!this.slrmModule) return;
+    if (!this.rewindQueue) return; // joint初期値が無くprepareGjkCd()未実行
     let noDestination = this.noDestination;
     let result_status_value = null;
     let result_other = null;
@@ -267,7 +274,7 @@ class IkCdCalc {
 	  // 大抵1回前のcd結果が入っている
 	  if (this.rewindQueue.newestResult.length) {
 	    // detect collision(s)
-	    this.joints.set(this.getRewindElement());
+	    this.joints.set(this.rewindQueue.getRewindElement());
 	    this.subState = sst.converged; // 衝突したら動作終了
 	  }
 	  // endLinkPoseVec = [];
@@ -329,7 +336,7 @@ class IkCdCalc {
 	}
 	this.sendLinkCoordsToCd(this.joints);
 	if (this.rewindQueue.newestResult.length) {
-	  this.joints.set(this.getRewindElement());
+	  this.joints.set(this.rewindQueue.getRewindElement());
 	}
 	break;
       case this.SLRM_STAT.END:

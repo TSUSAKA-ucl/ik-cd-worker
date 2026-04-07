@@ -2,6 +2,13 @@
 import { customLogger } from './customLogger.js';
 globalThis.__customLogger = customLogger;
 const ucl_logger = globalThis.__customLogger;
+// ********************************
+// デバッグコンソール出力
+// if (typeof console.debug === 'function')  ucl_logger.debug = console.debug;
+// if (typeof console.log === 'function')  ucl_logger.log = console.log;
+if (typeof console.warn === 'function')  ucl_logger.warn = console.warn;
+if (typeof console.error === 'function')  ucl_logger.error = console.error;
+
 // Worker script for handling messages and performing calculations
 // worker state definition
 import {TrapVelocGenerator} from './TrapVelocGenerator.js';
@@ -16,14 +23,6 @@ let makeDoubleVectorG = null; // helper function for DoubleVector
 // workerの終了フラグ <- 終了時の後始末用
 let shutdownFlag = false;
 
-// ********************************
-// デバッグコンソール出力
-if (typeof console.log === 'function')
-  ucl_logger.log = console.log
-if (typeof console.warn === 'function')
-  ucl_logger.warn = console.warn
-if (typeof console.error === 'function')
-  ucl_logger.error = console.error
 // *************************************
 // ******** WASM module loading ********
 // *************************************
@@ -103,6 +102,7 @@ self.onmessage = function(event) {
   case 'cd_port': if (data.port) {
     self.cdWorkerPort = data.port;
     self.myBodyName = data.from;
+    calcObj.prepareGjkCd(self.cdWorkerPort);
   }
     break;
   case 'init': if (calcObj.state === st.waitingRobotType) {
@@ -258,7 +258,7 @@ self.onmessage = function(event) {
 		  packed.testPairs = testPairs;
 		  // cdWorkerにtransferable objectとして送る
 		  self.cdWorkerPort.postMessage({command: 'link_shapes',
-						 data: packed,
+						 shapes: packed,
 						 name: self.myBodyName},
 						[packed.abLayer.buffer,
 						 packed.rbLayer.buffer,
@@ -296,10 +296,8 @@ self.onmessage = function(event) {
       const joints = new Float64Array(data.joints.length);
       joints.set(data.joints);
       calcObj.joints = joints;
-      if (self.cdWorkerPort) {
-	// prepareGjkCdの前にcalcObj.jointsのセットが必要
-	calcObj.prepareGjkCd(self.cdWorkerPort);
-      }
+      // prepareRewindQueueu()の前にcalcObj.jointsのセットが必要
+      calcObj.prepareRewindQueue();
       const initialJoints = joints.slice();
       calcObj.initialjoints = initialJoints;
       calcObj.prevJoints = joints.slice();

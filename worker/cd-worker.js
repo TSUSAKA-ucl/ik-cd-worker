@@ -6,6 +6,10 @@ if (typeof console.warn === 'function')
   ucl_logger.warn = console.warn
 if (typeof console.error === 'function')
   ucl_logger.error = console.error
+if (typeof console.log === 'function')
+  ucl_logger.log = console.log
+if (typeof console.debug === 'function')
+  ucl_logger.debug = console.debug
 //
 //
 const CdModuleFactory = await import('/wasm/cd_module.js');
@@ -29,6 +33,7 @@ const CdModuleFactory = await import('/wasm/cd_module.js');
   // _get_collision_pairs_buffer_ptr_: [Function: 603],
   // _get_collision_pairs_buffer_size_: [Function: 602],
 const CdModule = await CdModuleFactory.default();
+ucl_logger?.debug('CdModule loaded successfully', CdModule);
 if (!CdModule) {
   ucl_logger?.error('Failed to load CdModule');
   throw new Error('CdModule could not be loaded');
@@ -46,10 +51,12 @@ self.channel = [];
 
 
 function main() {
-  self.onmessage = async (event) => {
+  ucl_logger?.debug('cd-worker started, waiting for messages...');
+  self.onmessage = (event) => {
     const data = event.data;
     switch (data.type) {
     case 'add_port':
+      ucl_logger?.debug('Received add_port message', data);
       self.channel.push(data.port);
       // onmessageハンドラーを付ける関数を呼ぶ
       attachOnMessageHandler(data.port);
@@ -77,6 +84,7 @@ function main() {
   const cdModule = self.CdModule;
   const gjkCd = cdModule;
   self.postMessage({ type: 'cd_worker_ready' });
+  ucl_logger?.debug('cd_worker_ready message posted');
   const loop = () => {
     newestSequence.forEach((seq, abId) => {
       if (typeof seq === 'number' &&
@@ -90,41 +98,48 @@ function main() {
     // rbCoordsUpdatedを最小限に抑えられる
     newestSequence.length = 0;
     newestPoses.length = 0;
-    // WASM側で衝突判定を行う。結果はWASM内のバッファに書き込まれる
-    gjkCd._test_collision_pairs2();
-    // 一旦、colliding abIds bufferは中止。全abIdを走査することとする
-    // const collidingAbIdsPtr = gjkCd.getCollidingAbIdsBufferPtr();
-    // const collidingAbIdsSize = gjkCd.getCollidingAbIdsBufferSize();
-    // const collidingAbIds = new Int32Array(self.CdModule.HEAP32.buffer,
-    // 					  collidingAbIdsPtr,
-    // 					  collidingAbIdsSize);
-    // // abはik-workerと一対一に対応していて、個々に固有のseq番号がある
-    // // collidingAbIdsの中身はabIDとsequenceが交互にならんでいる
+    if (gjkCd._all_link_pose_defined() !== 0) {
+      // WASM側で衝突判定を行う。結果はWASM内のバッファに書き込まれる
+      gjkCd._test_collision_pairs2();
+      // 一旦、colliding abIds bufferは中止。全abIdを走査することとする
+      // const collidingAbIdsPtr = gjkCd.getCollidingAbIdsBufferPtr();
+      // const collidingAbIdsSize = gjkCd.getCollidingAbIdsBufferSize();
+      // const collidingAbIds = new Int32Array(self.CdModule.HEAP32.buffer,
+      // 					  collidingAbIdsPtr,
+      // 					  collidingAbIdsSize);
+      // // abはik-workerと一対一に対応していて、個々に固有のseq番号がある
+      // // collidingAbIdsの中身はabIDとsequenceが交互にならんでいる
 
-    const collisionPairsPtr = gjkCd._get_collision_pairs_buffer_ptr_();
-    const collisionPairsSize = gjkCd._get_collision_pairs_buffer_size_();
-    const collisionPairs = new Int32Array(self.CdModule.HEAP32.buffer,
-					  collisionPairsPtr,
-					  collisionPairsSize);
-    // 干渉している全rbIdのペアの配列。中身はrbId(通し番号)が交互に並んでいる
-
-    // ab毎に必要なrbIdを抽出して、abIdとsequenceとともにik-workerに送る
-    // for (let i = 0; i < collidingAbIdsSize; i += 2) {
-    //   const abId = collidingAbIds[i];
-    for (let abId = 0; abId < cdModule._num_ab_objects(); abId++) {
-      const rbIdOffsetMin = cdModule._query_rbId_offset(abId);
-      const rbIdOffsetMax = cdModule._query_rbId_end(abId);
-      const abCollisionRbIds = [];
-      for (let j = 0; j < collisionPairsSize; j++) {
-	const rbId1 = collisionPairs[j];
-	if (rbIdOffsetMin <= rbId1 && rbId1 < rbIdOffsetMax) {
-	  // ここでrbIdをab内の相対的な0オリジンのIDに変換し旧版と互換にする
-	  abCollisionRbIds.push(rbId1 - rbIdOffsetMin);
-	}
+      const collisionPairsPtr = gjkCd._get_collision_pairs_buffer_ptr_();
+      const collisionPairsSize = gjkCd._get_collision_pairs_buffer_size_();
+      const collisionPairs = new Int32Array(self.CdModule.HEAP32.buffer,
+					    collisionPairsPtr,
+					    collisionPairsSize);
+      // 干渉している全rbIdのペアの配列。中身はrbId(通し番号)が交互に並んでいる
+      // デバッグ用にcollisionPairsの内容をログに出す。
+      // ucl_logger?.debug('Collision pairs:', collisionPairs);
+      if (collisionPairsSize > 0) {
+	const collisionPairsArray = Array.from(collisionPairs.slice(0, collisionPairsSize));
+	ucl_logger?.debug('Collision pairs array:', collisionPairsArray);
       }
-      self.channel[abId].postMessage({ command: 'collision_pairs',
-				       sequence: cdModule._query_ab_sequence(abId),
-				       rbIds: abCollisionRbIds});
+      // ab毎に必要なrbIdを抽出して、abIdとsequenceとともにik-workerに送る
+      // for (let i = 0; i < collidingAbIdsSize; i += 2) {
+      //   const abId = collidingAbIds[i];
+      for (let abId = 0; abId < cdModule._num_ab_objects(); abId++) {
+	const rbIdOffsetMin = cdModule._query_rbId_offset(abId);
+	const rbIdOffsetMax = cdModule._query_rbId_end(abId);
+	const abCollisionRbIds = [];
+	for (let j = 0; j < collisionPairsSize; j++) {
+	  const rbId1 = collisionPairs[j];
+	  if (rbIdOffsetMin <= rbId1 && rbId1 < rbIdOffsetMax) {
+	    // ここでrbIdをab内の相対的な0オリジンのIDに変換し旧版と互換にする
+	    abCollisionRbIds.push(rbId1 - rbIdOffsetMin);
+	  }
+	}
+	self.channel[abId].postMessage({ command: 'collision_pairs',
+					 sequence: cdModule._query_ab_sequence(abId),
+					 rbIds: abCollisionRbIds});
+      }
     }
     if (self.alive) setTimeout(loop, 4);
   };
@@ -164,12 +179,15 @@ function cleanupAb(abId, memory=true) {
 const newestSequence = [];
 const newestPoses = [];
 function attachOnMessageHandler(port) {
-  port.onmessage = async (event) => {
+  ucl_logger?.debug('Attaching onmessage handler to port', port);
+  port.onmessage = (event) => {
     switch (event.data.command) {
     case 'link_shapes': {
       const abId = portToId(port, true);
       // self.channel[abId] = port;
-      registerLinkShapes(abId, event.data.packedData);
+      ucl_logger?.debug('Received link_shapes command. abLayer:', event.data.shapes.abLayer);
+      registerLinkShapes(abId, event.data.shapes);
+      ucl_logger?.debug('Registered link shapes for abId', abId);
       port.postMessage({ command: 'query_ab_id_response',
 			 abId: abId});
     }
@@ -238,6 +256,10 @@ function registerLinkShapes(abId, packedData) {
   cdModule._vertex_free();
   // 以上で、WASMのglobal(g_ab_objects_にリンク形状構造のvectorができ
   // g_link_shapes_にCD用にフラット化したデータもできる
+  for (const pair of packed.testPairs) {
+    ucl_logger?.debug('Registering test pair', pair, 'for abId', abId);
+    cdModule._add_test_pair(pair[0],pair[1]);
+  }
 }
 
 // WASMにrbの座標が更新されたことを通知する関数。articulated body idと

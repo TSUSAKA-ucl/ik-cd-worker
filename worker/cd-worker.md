@@ -54,3 +54,27 @@ WASMにqueryすると各abに対応するrb番号のオフセット(最初の値
 `const collisionPairsArray = new Int32Array(....)`  
 この配列に含まれるrbIdのうちオフセット範囲に収まっているもの(本abIdの
 もの)の一覧を抽出して、abIdに対応するportにpostMessageする  
+
+## cd-workerがik-workerとのmessage channelから受信するcommand
+
+1. `link_shapes`:
+2. `query_ab_id`:
+3. `rb_poses`:
+
+さらにcommand受信タイミングと関係なく、`setTimeout(loop, 4);`で
+干渉チェック計算を行う。`loop()`関数は途中で他のマイクロタスクに
+制御を渡さない
+### `loop()`
+
+```
+newestSequence[abId] = event.data.sequence;
+newestPoses[abId] = event.data.poses;
+```
+で、`newestPoses`に最近変更されたlink poseが入っている
+`newestPoses`に入っている分だけrbCoordsUpdatedでWASM用の
+link poseを更新する
+
+1. `rbCoordsUpdated(abId, seq, newestPoses[abId]);`  
+   更新されたlinkの位置姿勢に
+2. `gjkCd._test_collision_pairs2();`
+3. get collision pairs

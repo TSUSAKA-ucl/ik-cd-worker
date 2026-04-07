@@ -82,3 +82,42 @@ ik-workerのライフサイクル管理のremoveの実装復活が期待でき�
 	   7.1.4 set joint limits loopObject(setJointLimits)
 8.0 mainLoop function definition
 8.1 self.postMessage({type: 'ready'}); mainLoop
+
+# postMessageとonmessageでRPCのように対応をとる方法
+```
+const worker = new Worker('worker.js');
+const pendingRequests = new Map(); // ID と resolve 関数のマッピング
+
+// Worker からの返信を受け取る共通ハンドラー
+worker.onmessage = (event) => {
+  const { id, result, error, type } = event.data;
+  
+  if (pendingRequests.has(id)) {
+    const { resolve, reject } = pendingRequests.get(id);
+    pendingRequests.delete(id); // 完了したら削除
+    
+    if (error) reject(error);
+    else resolve(result);
+  }
+};
+
+// Promise でラップした送信関数
+function sendCommand(type, payload) {
+  const id = crypto.randomUUID(); // ユニークなIDを発行
+  
+  return new Promise((resolve, reject) => {
+    pendingRequests.set(id, { resolve, reject });
+    worker.postMessage({ id, type, payload });
+  });
+}
+
+// 使い方：await で結果を待てるようになる
+async function run() {
+  try {
+    const result = await sendCommand('calculate', { value: 10 });
+    console.log('結果:', result);
+  } catch (err) {
+    console.error('エラー:', err);
+  }
+}
+```

@@ -1,6 +1,6 @@
 {
   "name": "@ucl-nuee/ik-cd-worker",
-  "version": "0.4.7",
+  "version": "1.0.0",
   "publishConfig": {
     "access": "public"
   },
@@ -25,7 +25,9 @@
     "./IkWorkerManager.js": "./src/IkWorkerManager.js"
   },
   "scripts": {
-    "build": "vite build",
+    "build:ik": "vite build --mode ik",
+    "build:cd": "vite build --mode cd",
+    "build": "pnpm run build:ik && pnpm run build:cd",
     "lint": "eslint .",
     "pack": "pnpm pack"
   },
