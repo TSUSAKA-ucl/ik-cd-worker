@@ -64,7 +64,7 @@ class RewindQueue {
   getOnmessageHandler() {
     // onmessageのスロットデコードで該当したときに呼ぶべき関数
     return (sequence, data) => {
-      this.#cleanUpQueue(sequence, data.size === 0);
+      this.#cleanUpQueue(sequence, !(data.length > 0));
       this.newestResult = data;
       this.newestSeq = sequence;
     };
@@ -83,6 +83,13 @@ class RewindQueue {
     }
     return index;
   }
+  #currentSize () {
+    if (this.#rear >= this.#front) {
+      return (this.#rear - this.#front) / this.#elementSize;
+    } else {
+      return (this.#queueMaxSize * this.#elementSize - this.#front + this.#rear) / this.#elementSize;
+    }
+  }
   // element(だけseqを付けてrewind queueに積み
   enqueue(element) { // Float64Array (elementSize)
     this.#seq++;
@@ -90,6 +97,10 @@ class RewindQueue {
       this.#queueBody[this.#rear] = this.#seq;
       this.#queueBody.set(element, this.#rear+1);
       this.#rear = this.#stepIndex(this.#rear);
+      // console.debug("rewindQueue: enqueue: seq: " + this.#seq + ", front seq: " + this.#queueBody[this.#front] + ", rear-1 seq: " + this.#queueBody[this.#stepBackIndex(this.#rear)]);
+    } else {
+      console.warn("WARNING: rewindQueue: enqueue: queue is full.");
+      console.warn("WARNING: front seq: " + this.#queueBody[this.#front] + ", rear-1 seq: " + this.#queueBody[this.#stepBackIndex(this.#rear)] + ", new seq: " + this.#seq);
     }
   }
   // 4.5. 7.8.9. ik-workerがcd-workerからの回答を処理するための関数
@@ -106,22 +117,28 @@ class RewindQueue {
   #cleanUpQueue (seq, isOK) {
     if (isOK) {
       const idx = this.#searchSeq(seq);
-      if (idx !== -1) { // 4.
+      if (idx !== -1) { // 4. OKで、そのseqがqueueにあった!!
 	// そのseqがqueueにあれば、そのseqより古いデータをqueueから削除する。
 	// すなわちそのseqの位置をfrontにする。
 	this.#front = idx;
-      } else { // 5.
-	// そのseqがqueueに無ければ、rear-1のseqより大きいはずなので、
-	// 先頭(front)を残して全て削除する。
-	// しかし、これは事実上queueがオーバーフローしている状態で良くない。
-	console.warn("WARNING: rewindQueue: cleanUpQueue: OK but seq not found in queue. maybe queue overflow?");
+      } else { // 5. OKだが、そのseqがqueueにない!!
+	// そのseqがqueueに無ければ、先頭(front)を残して全て削除する。
+	// しかし、rear-1のseqより大きい場合は、これは事実上queueがオーバーフローしている状態で良くない。
+	const rear1Seq = this.#queueBody[this.#stepBackIndex(this.#rear)];
+	if (seq > rear1Seq) {
+	  console.warn("WARNING: rewindQueue: cleanUpQueue: OK but seq not found in queue. size:" + this.#currentSize() +
+		       ", seq: " + seq + ", front seq: " + this.#queueBody[this.#front] +
+		       ", rear-1 seq: " + this.#queueBody[this.#stepBackIndex(this.#rear)]);
+	}
 	const rear1 = this.#stepBackIndex(this.#rear);
 	if (seq > this.#queueBody[rear1]) { // 5.
 	  // 先頭(front)を残して全て削除する。
 	  this.#rear = this.#stepIndex(this.#front);
 	} else {
-	  // 6. そのseqがrear-1のseq以下だがqueueの中に無いことはありえない
-	  console.error("FATAL: rewindQueue: cleanUpQueue: OK but seq not found in queue");
+	  if (seq > rear1Seq) {
+	    // 6. そのseqがrear-1のseq以下だがqueueの中に無いことはありえない
+	    console.error("FATAL: rewindQueue: cleanUpQueue: OK but seq not found in queue");
+	  }
 	}
       }
     } else {
@@ -130,6 +147,7 @@ class RewindQueue {
 	// 8.seqがrear-1のseqより大きければ先頭(front OK)を残して全て削除する
 	// 4.により先頭だけがOKが確定していて、それ以降は全てチェックが飛ばされた状態なので、先頭を残して全て削除する。
 	this.#rear = this.#stepIndex(this.#front);
+	// console.debug("rewindQueue: cleanUpQueue: remain only front seq: " + this.#queueBody[this.#front] + ", rear-1 seq: " + this.#queueBody[this.#stepBackIndex(this.#rear)]);
       }
     }
   }

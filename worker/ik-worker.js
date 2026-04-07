@@ -5,7 +5,7 @@ const ucl_logger = globalThis.__customLogger;
 // ********************************
 // デバッグコンソール出力
 // if (typeof console.debug === 'function')  ucl_logger.debug = console.debug;
-// if (typeof console.log === 'function')  ucl_logger.log = console.log;
+if (typeof console.log === 'function')  ucl_logger.log = console.log;
 if (typeof console.warn === 'function')  ucl_logger.warn = console.warn;
 if (typeof console.error === 'function')  ucl_logger.error = console.error;
 

@@ -2,14 +2,10 @@
 import { customLogger } from './customLogger.js';
 globalThis.__customLogger = customLogger;
 const ucl_logger = globalThis.__customLogger;
-if (typeof console.warn === 'function')
-  ucl_logger.warn = console.warn
-if (typeof console.error === 'function')
-  ucl_logger.error = console.error
-if (typeof console.log === 'function')
-  ucl_logger.log = console.log
-if (typeof console.debug === 'function')
-  ucl_logger.debug = console.debug
+if (typeof console.warn === 'function')  ucl_logger.warn = console.warn;
+if (typeof console.error === 'function')  ucl_logger.error = console.error;
+if (typeof console.log === 'function')  ucl_logger.log = console.log;
+// if (typeof console.debug === 'function')  ucl_logger.debug = console.debug;
 //
 //
 const CdModuleFactory = await import('/wasm/cd_module.js');
@@ -120,7 +116,7 @@ function main() {
       // ucl_logger?.debug('Collision pairs:', collisionPairs);
       if (collisionPairsSize > 0) {
 	const collisionPairsArray = Array.from(collisionPairs.slice(0, collisionPairsSize));
-	ucl_logger?.debug('Collision pairs array:', collisionPairsArray);
+	//ucl_logger?.debug('Collision pairs array:', collisionPairsArray);
       }
       // ab毎に必要なrbIdを抽出して、abIdとsequenceとともにik-workerに送る
       // for (let i = 0; i < collidingAbIdsSize; i += 2) {
@@ -187,7 +183,7 @@ function attachOnMessageHandler(port) {
       // self.channel[abId] = port;
       ucl_logger?.debug('Received link_shapes command. abLayer:', event.data.shapes.abLayer);
       registerLinkShapes(abId, event.data.shapes);
-      ucl_logger?.debug('Registered link shapes for abId', abId);
+      ucl_logger?.log('Registered link shapes for abId', abId);
       port.postMessage({ command: 'query_ab_id_response',
 			 abId: abId});
     }
@@ -257,7 +253,7 @@ function registerLinkShapes(abId, packedData) {
   // 以上で、WASMのglobal(g_ab_objects_にリンク形状構造のvectorができ
   // g_link_shapes_にCD用にフラット化したデータもできる
   for (const pair of packed.testPairs) {
-    ucl_logger?.debug('Registering test pair', pair, 'for abId', abId);
+    // ucl_logger?.debug('Registering test pair', pair, 'for abId', abId);
     cdModule._add_test_pair(pair[0],pair[1]);
   }
 }

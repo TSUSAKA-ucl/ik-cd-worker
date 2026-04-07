@@ -132,7 +132,7 @@ class IkCdCalc {
   }
 
   prepareGjkCd(port) {
-    ucl_logger?.warn('Preparing GJK Collision Detection with port:', port);
+    ucl_logger?.debug('Preparing GJK Collision Detection with port:', port);
     this.cdPort = port;
     this.cdPort.onmessage = (event) => {
       switch (event.data.command) {
