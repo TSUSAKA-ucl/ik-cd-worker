@@ -117,8 +117,15 @@ export default async function IkWorkerManager({robotName,
 			  bridgeUrl: topicBridgeWebSocketURL
 			};
 	// globalThis.__customLogger?.warn('XXX init msg',initMsg);
-	workerRef.current
-	  .postMessage(initMsg);
+	workerRef.current.postMessage(initMsg);
+	// もし entity.object3Dの値があれば 'type: set_base_coord'をpostMessage
+	if (entity?.object3D) {
+	  // 念の為matrixWorldを更新してから値を取る
+	  entity.object3D.updateMatrixWorld();
+	  const baseCoord = entity.object3D.matrixWorld.elements;
+	  workerRef.current.postMessage({ type: 'set_base_coord',
+					  baseCoord: baseCoord });
+	}
       }
 	break;
       case 'generator_ready':

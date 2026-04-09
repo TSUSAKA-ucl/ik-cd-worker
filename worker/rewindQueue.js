@@ -99,8 +99,10 @@ class RewindQueue {
       this.#rear = this.#stepIndex(this.#rear);
       // console.debug("rewindQueue: enqueue: seq: " + this.#seq + ", front seq: " + this.#queueBody[this.#front] + ", rear-1 seq: " + this.#queueBody[this.#stepBackIndex(this.#rear)]);
     } else {
-      console.warn("WARNING: rewindQueue: enqueue: queue is full.");
-      console.warn("WARNING: front seq: " + this.#queueBody[this.#front] + ", rear-1 seq: " + this.#queueBody[this.#stepBackIndex(this.#rear)] + ", new seq: " + this.#seq);
+      // console.warn("WARNING: rewindQueue: enqueue: queue is full.");
+      // console.warn("WARNING: front seq: " + this.#queueBody[this.#front] +
+      // 		   ", rear-1 seq: " + this.#queueBody[this.#stepBackIndex(this.#rear)] +
+      // 		   ", new seq: " + this.#seq);
     }
   }
   // 4.5. 7.8.9. ik-workerがcd-workerからの回答を処理するための関数
@@ -121,6 +123,9 @@ class RewindQueue {
 	// そのseqがqueueにあれば、そのseqより古いデータをqueueから削除する。
 	// すなわちそのseqの位置をfrontにする。
 	this.#front = idx;
+	console.log("rewindQueue: cleanUpQueue: OK and seq found in queue. size:" + this.#currentSize() +
+		    ", seq: " + seq + ", front seq: " + this.#queueBody[this.#front] +
+		    ", rear-1 seq: " + this.#queueBody[this.#stepBackIndex(this.#rear)]);
       } else { // 5. OKだが、そのseqがqueueにない!!
 	// そのseqがqueueに無ければ、先頭(front)を残して全て削除する。
 	// しかし、rear-1のseqより大きい場合は、これは事実上queueがオーバーフローしている状態で良くない。

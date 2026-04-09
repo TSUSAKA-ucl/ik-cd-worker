@@ -326,6 +326,28 @@ self.onmessage = function(event) {
       ucl_logger?.log('Worker state changed to slrmReady');
     }
   } break;
+  case 'set_base_coord':
+    {
+      ucl_logger?.warn('########## Received set_base_coord command ##########');
+      // const ptr = SlrmModule._get_wTbase_buffer_ptr();
+      // const size = SlrmModule._get_wTbase_buffer_size();
+      const ptr = calcObj.cmdVelGen?.getWTBaseBufferPtr();
+      const size = calcObj.cmdVelGen?.getWTBaseBufferSize();
+      if (ptr && size) {
+	const wTbaseArray = new Float64Array(SlrmModule.HEAPF64.buffer, ptr, size);
+	if (data.baseCoord && data.baseCoord.length === 16) {
+	  wTbaseArray.set(data.baseCoord);
+	  calcObj.cmdVelGen.notifyWTBaseBufferUpdated();
+	  ucl_logger?.debug('Base coordinate updated: '
+			    + data.baseCoord.slice(0,4).map(v => v.toFixed(3)).join(', ') + ' ...');
+	} else {
+	  ucl_logger?.error('Invalid baseCoord data:', data.baseCoord);
+	}
+      } else {
+	ucl_logger?.error('Failed to get wTbase buffer pointer or size');
+      }
+    }
+    break;
   case 'destination': if (calcObj.state === st.slrmReady &&
 			  calcObj.subState !== sst.rewinding &&
 			  calcObj.subState !== sst.jMoving &&

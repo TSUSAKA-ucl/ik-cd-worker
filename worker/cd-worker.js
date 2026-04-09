@@ -9,32 +9,14 @@ if (typeof console.log === 'function')  ucl_logger.log = console.log;
 //
 //
 const CdModuleFactory = await import('/wasm/cd_module.js');
-  // _ab_alloc: [Function: 622],
-  // _rb_alloc: [Function: 621],
-  // _sa_alloc: [Function: 620],
-  // _vertex_alloc: [Function: 619],
-  // _ab_free: [Function: 618],
-  // _rb_free: [Function: 617],
-  // _sa_free: [Function: 616],
-  // _vertex_free: [Function: 615],
-  // _num_ab_objects: [Function: 614],
-  // _add_link_shape2: [Function: 613],
-  // _query_ab_sequence: [Function: 612],
-  // _query_rbId_offset: [Function: 610],
-  // _query_rbId_end: [Function: 609],
-  // _get_wTlinks_buffer_ptr2: [Function: 608],
-  // _get_wTlinks_buffer_size2: [Function: 607],
-  // _notify_link_coords_updated2: [Function: 606],
-  // _test_collision_pairs2: [Function: 604],
-  // _get_collision_pairs_buffer_ptr_: [Function: 603],
-  // _get_collision_pairs_buffer_size_: [Function: 602],
+
 const CdModule = await CdModuleFactory.default();
 ucl_logger?.debug('CdModule loaded successfully', CdModule);
 if (!CdModule) {
   ucl_logger?.error('Failed to load CdModule');
   throw new Error('CdModule could not be loaded');
 }
-CdModule.setJsLogLevel(2); // 3: info level, 4: debug level
+CdModule.setJsLogLevel(3); // 3: info level, 4: debug level
 
 // abはchannelと1対1で対応させる。abIdをchannelのindexとして使う。
 // 名前はchannelの反対側で管理するため不要。このworkerのコードは書き換え。
@@ -96,7 +78,9 @@ function main() {
     newestPoses.length = 0;
     if (gjkCd._all_link_pose_defined() !== 0) {
       // WASM側で衝突判定を行う。結果はWASM内のバッファに書き込まれる
+      ucl_logger?.log('Running collision detection... ..................');
       gjkCd._test_collision_pairs2();
+      ucl_logger?.log('Collision detection completed');
       // 一旦、colliding abIds bufferは中止。全abIdを走査することとする
       // const collidingAbIdsPtr = gjkCd.getCollidingAbIdsBufferPtr();
       // const collidingAbIdsSize = gjkCd.getCollidingAbIdsBufferSize();
@@ -132,12 +116,15 @@ function main() {
 	    abCollisionRbIds.push(rbId1 - rbIdOffsetMin);
 	  }
 	}
+	if (abCollisionRbIds.length > 0) {
+	  ucl_logger?.log(`Posting collision pairs for abId ${abId}:`, abCollisionRbIds);
+	}
 	self.channel[abId].postMessage({ command: 'collision_pairs',
 					 sequence: cdModule._query_ab_sequence(abId),
 					 rbIds: abCollisionRbIds});
       }
     }
-    if (self.alive) setTimeout(loop, 4);
+    if (self.alive) setTimeout(loop, 500); // 4);
   };
   loop();
 }
@@ -147,6 +134,7 @@ function portToId(port, add=false) {
   if (abId === -1) {
     if (add) {
       self.channel.push(port);
+      ucl_logger?.log('channel table updated:', self.channel);
       return self.channel.length - 1;
     } else {
       return null;
@@ -254,8 +242,9 @@ function registerLinkShapes(abId, packedData) {
   // g_link_shapes_にCD用にフラット化したデータもできる
   for (const pair of packed.testPairs) {
     // ucl_logger?.debug('Registering test pair', pair, 'for abId', abId);
-    cdModule._add_test_pair(pair[0],pair[1]);
+    cdModule._add_ab_test_pair(abId, pair[0],pair[1]);
   }
+  cdModule._reconstruct_test_pairs();
 }
 
 // WASMにrbの座標が更新されたことを通知する関数。articulated body idと
