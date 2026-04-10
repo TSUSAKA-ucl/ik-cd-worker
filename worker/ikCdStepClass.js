@@ -33,6 +33,8 @@ class IkCdCalc {
     this.state =  st.initializing; // worker state
     this.subState =  sst.dormant;  // slrm & joint mover/rewinder state
     this.timeInterval = 4; // time step for simulation in milliseconds
+    this.postInterval = 33; // interval for posting messages to main thread in milliseconds
+    this.postTimer = 0; // timer for posting messages to main thread
     this.logInterval = 0n/BigInt(this.timeInterval); // log interval in BigInt
     // ******** flags ********
     this.noDestination = true; // 目標位置姿勢が存在しないかどうか
@@ -123,7 +125,7 @@ class IkCdCalc {
   }
 
   prepareRewindQueue() {
-    ucl_logger?.warn('Preparing rewind queue for collision detection');
+    ucl_logger?.debug('Preparing rewind queue for collision detection');
     this.rewindQueue = new RewindQueue(100, this.joints);
     this.setNewData = this.rewindQueue.getOnmessageHandler();
     // rewindQueueはonmessage handlerによって常に先頭は直近のrewind可能な
@@ -253,10 +255,26 @@ class IkCdCalc {
   }
 
   // ***** main function called in each loop *****
-  step(timeStep) {
+  step(timeDelta) { // timeDelta is in milliseconds
+    this.postTimer += timeDelta;
+    const timeStep = timeDelta / 1000; // convert to seconds
     if (this.subState === sst.dormant) return;
     if (!this.slrmModule) return;
     if (!this.rewindQueue) return; // joint初期値が無くprepareGjkCd()未実行
+    // もしWASMに渡していないbase_coordがあれば渡す。calcFk0()の中でbase_coordを使う
+    const global_base_coord = globalThis.base_coord;
+    if (global_base_coord && global_base_coord.length === 16 &&
+	global_base_coord[15] > 0 &&
+	typeof this.cmdVelGen?.notifyWTBaseBufferUpdated === 'function') {
+      const ptr = this.cmdVelGen.getWTBaseBufferPtr();
+      const size = this.cmdVelGen.getWTBaseBufferSize();
+      if (ptr && size) {
+	const wTbaseArray = new Float64Array(this.slrmModule.HEAPF64.buffer, ptr, size);
+	wTbaseArray.set(global_base_coord);
+	this.cmdVelGen.notifyWTBaseBufferUpdated();
+	global_base_coord[15] = -1; // 使用済、未定義にする
+      }
+    }
     let noDestination = this.noDestination;
     let result_status_value = null;
     let result_other = null;
@@ -387,21 +405,24 @@ class IkCdCalc {
 	  }
 	}
       }
-      self.postMessage({type: 'joints', joints: this.joints});
-      self.postMessage({type: 'status', status: this.statusName[result_status_value],
-			exact_solution: this.exactSolution,
-			condition_number: result_other.condition_number,
-			manipulability: result_other.manipulability,
-			sensitivity_scale: result_other.sensitivity_scale,
-			limit_flag: this.limitFlags,
-			collisions: this.rewindQueue.newestResult
-		       });
-      // newestResultは旧result_collisionと仕様が違うが多分reflectCollisionは
-      // 働く
-      self.postMessage({type: 'pose',
-			position: position,
-			quaternion: quaternion,
-		       },[position.buffer, quaternion.buffer]);
+      if (this.postTimer >= this.postInterval) {
+	self.postMessage({type: 'joints', joints: this.joints});
+	self.postMessage({type: 'status', status: this.statusName[result_status_value],
+			  exact_solution: this.exactSolution,
+			  condition_number: result_other.condition_number,
+			  manipulability: result_other.manipulability,
+			  sensitivity_scale: result_other.sensitivity_scale,
+			  limit_flag: this.limitFlags,
+			  collisions: this.rewindQueue.newestResult
+			 });
+	// newestResultは旧result_collisionと仕様が違うが多分reflectCollisionは
+	// 働く
+	self.postMessage({type: 'pose',
+			  position: position,
+			  quaternion: quaternion,
+			 },[position.buffer, quaternion.buffer]);
+	this.postTimer = 0;
+      }
       if (this.subState === sst.converged) {
 	// cmdQueueを確認して新しいコマンドがあれば開始する
 	if (this._cmdQueue.length > 0) {

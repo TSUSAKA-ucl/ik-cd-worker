@@ -63,6 +63,14 @@ function main() {
   const gjkCd = cdModule;
   self.postMessage({ type: 'cd_worker_ready' });
   ucl_logger?.debug('cd_worker_ready message posted');
+  // test_collision_pairs2にかかる時間の平均とばらつきと最大最小を計る
+  let totalTime = 0;
+  let totalTimeSquared = 0;
+  let maxTime = 0;
+  let minTime = Infinity;
+  let countForTiming = 0;
+  // log出力制御用のループカウンタ。0のときだけlog出力
+  let loopCount = 0;
   const loop = () => {
     newestSequence.forEach((seq, abId) => {
       if (typeof seq === 'number' &&
@@ -78,9 +86,18 @@ function main() {
     newestPoses.length = 0;
     if (gjkCd._all_link_pose_defined() !== 0) {
       // WASM側で衝突判定を行う。結果はWASM内のバッファに書き込まれる
-      ucl_logger?.log('Running collision detection... ..................');
+      if (loopCount === 0) ucl_logger?.debug('Running collision detection... ..................');
+      // test_collision_pairs2にかかる時間の平均とばらつきと最大最小を計る
+      const startTime = performance.now();
       gjkCd._test_collision_pairs2();
-      ucl_logger?.log('Collision detection completed');
+      const endTime = performance.now();
+      if (loopCount === 0) ucl_logger?.debug('Collision detection completed');
+      const elapsedTime = endTime - startTime;
+      totalTime += elapsedTime;
+      totalTimeSquared += elapsedTime * elapsedTime;
+      maxTime = Math.max(maxTime, elapsedTime);
+      minTime = Math.min(minTime, elapsedTime);
+      countForTiming++;
       // 一旦、colliding abIds bufferは中止。全abIdを走査することとする
       // const collidingAbIdsPtr = gjkCd.getCollidingAbIdsBufferPtr();
       // const collidingAbIdsSize = gjkCd.getCollidingAbIdsBufferSize();
@@ -116,15 +133,26 @@ function main() {
 	    abCollisionRbIds.push(rbId1 - rbIdOffsetMin);
 	  }
 	}
-	if (abCollisionRbIds.length > 0) {
-	  ucl_logger?.log(`Posting collision pairs for abId ${abId}:`, abCollisionRbIds);
+	if (loopCount === 0 && abCollisionRbIds.length > 0) {
+	  ucl_logger?.debug(`Posting collision pairs for abId ${abId}:`, abCollisionRbIds);
 	}
 	self.channel[abId].postMessage({ command: 'collision_pairs',
 					 sequence: cdModule._query_ab_sequence(abId),
 					 rbIds: abCollisionRbIds});
       }
+    } else {
+      if (loopCount === 0) {
+	ucl_logger?.warn('Not all link poses defined yet, skipping collision detection');
+      }
     }
-    if (self.alive) setTimeout(loop, 500); // 4);
+    if (loopCount === 0 && countForTiming > 0) {
+      const avgTime = totalTime / countForTiming;
+      const variance = (totalTimeSquared / countForTiming) - (avgTime * avgTime);
+      const stdDev = Math.sqrt(variance);
+      ucl_logger?.debug(`Collision detection timing: avg=${avgTime.toFixed(2)}ms, stdDev=${stdDev.toFixed(2)}ms, min=${minTime.toFixed(2)}ms, max=${maxTime.toFixed(2)}ms`);
+    }
+    if (++loopCount >= 500) loopCount = 0;
+    if (self.alive) setTimeout(loop, 4);
   };
   loop();
 }

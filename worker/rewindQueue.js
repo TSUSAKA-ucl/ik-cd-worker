@@ -123,9 +123,9 @@ class RewindQueue {
 	// そのseqがqueueにあれば、そのseqより古いデータをqueueから削除する。
 	// すなわちそのseqの位置をfrontにする。
 	this.#front = idx;
-	console.log("rewindQueue: cleanUpQueue: OK and seq found in queue. size:" + this.#currentSize() +
-		    ", seq: " + seq + ", front seq: " + this.#queueBody[this.#front] +
-		    ", rear-1 seq: " + this.#queueBody[this.#stepBackIndex(this.#rear)]);
+	// console.log("rewindQueue: cleanUpQueue: OK and seq found in queue. size:" + this.#currentSize() +
+	// 	    ", seq: " + seq + ", front seq: " + this.#queueBody[this.#front] +
+	// 	    ", rear-1 seq: " + this.#queueBody[this.#stepBackIndex(this.#rear)]);
       } else { // 5. OKだが、そのseqがqueueにない!!
 	// そのseqがqueueに無ければ、先頭(front)を残して全て削除する。
 	// しかし、rear-1のseqより大きい場合は、これは事実上queueがオーバーフローしている状態で良くない。

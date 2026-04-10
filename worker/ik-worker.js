@@ -48,6 +48,15 @@ SlrmModule.setJsLogLevel(2); // 3: info level, 4: debug level
 const moveCommandQueue = [];
 // const calcObj = new IkCdCalc(SlrmModule, CdModule, moveCommandQueue);
 const calcObj = new IkCdCalc(SlrmModule, null, moveCommandQueue);
+//
+globalThis.base_coord = new Float64Array(16); // 基底座標を保存する配列
+const global_base_coord = globalThis.base_coord; // グローバルにアクセスできるようにする
+// global_base_coordは、global_base_coord[15] < 0のとき未定義とする
+for (let i = 0; i < 15; i++) {
+  global_base_coord[i] = (i % 5 === 0) ? 1 : 0; // i%5===0のときは1, それ以外は0
+}
+global_base_coord[15] = -1; // 最初は未定義
+
 
 // ******** worker message handler ********
 ucl_logger?.debug('now setting onmessage')
@@ -327,24 +336,34 @@ self.onmessage = function(event) {
     }
   } break;
   case 'set_base_coord':
-    {
-      ucl_logger?.warn('########## Received set_base_coord command ##########');
-      // const ptr = SlrmModule._get_wTbase_buffer_ptr();
-      // const size = SlrmModule._get_wTbase_buffer_size();
-      const ptr = calcObj.cmdVelGen?.getWTBaseBufferPtr();
-      const size = calcObj.cmdVelGen?.getWTBaseBufferSize();
-      if (ptr && size) {
-	const wTbaseArray = new Float64Array(SlrmModule.HEAPF64.buffer, ptr, size);
-	if (data.baseCoord && data.baseCoord.length === 16) {
+    // まず引数のdata.baseCoordが正しいか確認する。サイズ16でbaseCoord[15]>0ならば有効とみなす。
+    if (!data.baseCoord || data.baseCoord.length !== 16 || data.baseCoord[15] <= 0) {
+      ucl_logger?.error('Invalid baseCoord data received:', data.baseCoord);
+    } else {
+      // cmdVelGenがemscriptenのmodule factoryの生成物の場合は、ここで直接セットする。
+      // cmdVelGenにセットしたらglobal_base_coordは未定義にする
+      // cmdVelGenがemscriptenのオブジェクトで無い場合は, global_base_coordを更新して、
+      // calcObjのstep関数内でcmdVelGenにセットする。
+      if (cmdVelGen && typeof cmdVelGen.notifyWTBaseBufferUpdated === 'function') {
+	const ptr = cmdVelGen.getWTBaseBufferPtr();
+	const size = cmdVelGen.getWTBaseBufferSize();
+	if (ptr && size) {
+	  const wTbaseArray = new Float64Array(SlrmModule.HEAPF64.buffer, ptr, size);
 	  wTbaseArray.set(data.baseCoord);
-	  calcObj.cmdVelGen.notifyWTBaseBufferUpdated();
-	  ucl_logger?.debug('Base coordinate updated: '
-			    + data.baseCoord.slice(0,4).map(v => v.toFixed(3)).join(', ') + ' ...');
+	  cmdVelGen.notifyWTBaseBufferUpdated();
+	  global_base_coord.set(data.baseCoord);
+	  global_base_coord[15] = -1; // 使用済、未定義にする
+	  ucl_logger?.debug('Base coordinate updated: ' +
+			    data.baseCoord.slice(0,4).map(v => v.toFixed(3)).join(', ')+
+			    ' ...');
 	} else {
-	  ucl_logger?.error('Invalid baseCoord data:', data.baseCoord);
+	  ucl_logger?.error('Failed to get wTbase buffer pointer or size');
 	}
-      } else {
-	ucl_logger?.error('Failed to get wTbase buffer pointer or size');
+      } else { // cmdVelGenが存在しないか、notifyWTBaseBufferUpdatedが関数でない 
+	global_base_coord.set(data.baseCoord);
+	ucl_logger?.debug('Base coordinate stored in global_base_coord: ' +
+			  data.baseCoord.slice(0,4).map(v => v.toFixed(3)).join(', ') +
+			  ' ...');
       }
     }
     break;
@@ -577,11 +596,16 @@ self.onmessage = function(event) {
 
 
 // ******** worker main loop ********
-function mainLoop(prevTime = performance.now()-calcObj.timeInterval) {
+const loopIntervalMs = 4
+// let nextLoopTime = performance.now();
+// let prevTime = performance.now();
+function mainLoop() {
   const now = performance.now();
   const deltaTime = now - prevTime;
+  prevTime = now;
+  nextLoopTime += loopIntervalMs;
   // ここにstepの上限をつけること。stepが長くなりすぎると速度フィードバックが破綻する
-  calcObj.step(deltaTime / 1000); // time step in seconds
+  calcObj.step(deltaTime); // time step in milliseconds
   if (shutdownFlag === true) {
     self.postMessage({type: 'shutdown_complete'});
     ucl_logger?.log('main loop was finished')
@@ -606,12 +630,17 @@ function mainLoop(prevTime = performance.now()-calcObj.timeInterval) {
       bridge.socket.send(binary);
     }
   }
-  setTimeout(() => mainLoop(now), 0); // 次のループをスケジュール
+  const delay = Math.max(0, nextLoopTime - performance.now());
+  setTimeout(mainLoop, delay);
 }
 
 // ******** worker start ********
 calcObj.state = st.waitingRobotType;
 self.postMessage({type: 'ready'});
+//
+calcObj.timeInterval = loopIntervalMs;
+let nextLoopTime = performance.now();
+let prevTime = performance.now();
 mainLoop(); // メインループを開始
 // event loop
 
