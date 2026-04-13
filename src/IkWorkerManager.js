@@ -40,6 +40,13 @@ export default async function IkWorkerManager({robotName,
    if (entity?.sceneEl) {
       if (!entity.sceneEl.systems?.cdWorker) {
 	try {
+	  // entity.sceneEl.cdWorker = [1,2,3];
+	  // console.warn('$$$$$$$$$$ sceneEl: ',entity.sceneEl);
+	  // console.warn('$$$$$$$$$$ typeof sceneEl: ', typeof entity.sceneEl);
+	  // console.warn('$$$$$$$$$$ sceneEl.cdWorker: ', entity.sceneEl.cdWorker);
+	  // console.dir(entity.sceneEl);
+	  // console.warn('$$$$$$$$$$ sceneEl.systems: ',
+	  // 	       entity.sceneEl?.systems['cd-worker-system']);
 	  globalThis.__customLogger?.warn('Creating a new cd-worke: sceneEl.systems', entity.sceneEl.systems);
 	  entity.sceneEl.systems.cdWorker = { current: null, ready: false, el: entity.sceneEl };
 	  entity.sceneEl.systems.cdWorker.promise = new Promise((resolve, reject) => {
@@ -69,6 +76,7 @@ export default async function IkWorkerManager({robotName,
 	  // await createCdWorker();
 	  await entity.sceneEl.systems.cdWorker.promise;
 	} catch (error) {
+	  // console.warn('$$$$$$$$$$',entity?.sceneEl?.systems);
 	  globalThis.__customLogger?.error('Error during cd-worker creation:', error);
 	}
       } else {

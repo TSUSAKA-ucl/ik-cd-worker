@@ -1,3 +1,4 @@
+'use client'
 // worker.js の一番最初
 const noop = () => {}
 
@@ -9,3 +10,4 @@ const customLogger = {
 }
 
 export {customLogger};
+export default customLogger;

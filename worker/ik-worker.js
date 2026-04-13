@@ -15,9 +15,9 @@ import {TrapVelocGenerator} from './TrapVelocGenerator.js';
 import { encode } from '@msgpack/msgpack';
 
 import { st, sst, bridge } from './workerStateSingleton.js';
+// import { updateLeaves, sortJointsByHierarchy } from './urdfUtils.js';
 import { IkCdCalc } from './ikCdStepClass.js';
-// ******** definitions of global variables ********
-let makeDoubleVectorG = null; // helper function for DoubleVector
+import { MessageChannelHandler } from './MessageChannelHandler.js';
 
 // ****************
 // workerの終了フラグ <- 終了時の後始末用
@@ -58,11 +58,22 @@ for (let i = 0; i < 15; i++) {
 global_base_coord[15] = -1; // 最初は未定義
 
 
+const commandQueue = [];
 // ******** worker message handler ********
+// 現在、onmessageハンドラーで直接処理していものを、commandQueueを
+// stepの後にpollingで処理する形に変更する。
+// 以下のコマンドはqueueに積まずに直接実行する。
+// shutdown, set_worker_loglevel, set_slrm_loglevel, cd_port
+// それ以外のコマンドはqueueに積み、さらに'init'コマンドがresolveするまで
+// 他のコマンドは待つ。
+// destination, set_joint_targets, slow_rewindの3種のmoveコマンドは
+// さらにmoveCommandQueueに積んで、subStateがdormantあるいはconvergedになったら
+// 次のコマンドを処理(subStateを変更)する。この処理はIkCdCalcクラスの
+// calcObjの中で行う
+
 ucl_logger?.debug('now setting onmessage')
 self.onmessage = function(event) {
   const data = event.data;
-  let cmdVelGen = calcObj.cmdVelGen;
   switch (data.type) {
   case 'shutdown': // workerを終了する
     if (bridge.socket) {
@@ -112,30 +123,59 @@ self.onmessage = function(event) {
     self.cdWorkerPort = data.port;
     self.myBodyName = data.from;
     calcObj.prepareGjkCd(self.cdWorkerPort);
+    self.cdPortHander = new MessageChannelHandler(self.cdWorkerPort);
+    // setNewDataは、repareRewindQueue()の中で定義される関数であるため、
+    // ここでは定義できない
+    //   switch (event.data.command) {
+    //   case 'collision_pairs':
+    // 	if (typeof calc.setNewData === 'function') {
+    // 	  calcObj.setNewData(event.data.sequence, event.data.rbIds);
+    // 	}
   }
     break;
-  case 'init': if (calcObj.state === st.waitingRobotType) {
-    calcObj.state = st.generatorMaking;
-    ucl_logger?.log('constructing CmdVelGenerator with :', data.filename);
-    ucl_logger?.debug('URDF modifier file is', data.modifier);
-    // 初期化処理
-    const { makeDoubleVector } = createHelpers(SlrmModule);
-    makeDoubleVectorG = makeDoubleVector; // グローバルにヘルパー関数を保存
-    fetch(data.filename)
-      .then(response => response.json())
-      .then(jsonData => {
-	let urdfIsSorted = false;
-	let urdfData = null;
-	if (Array.isArray(jsonData)) {
-	  urdfData = {...jsonData};
-	  urdfIsSorted = true;
-	} else {
-	  urdfData = jsonData;
-	}
-	fetch(data.modifier)
+  default:
+    // enqueue other commands
+    commandQueue.push(data);
+    break;
+  }
+};
+
+async function processCommandQueue() {
+  const cmdVelGen = calcObj.cmdVelGen; // CmdVelGeneratorのインスタンスを保持する変数
+  const { makeDoubleVector } = createHelpers(SlrmModule);
+  while (commandQueue.length > 0) {
+    const data = commandQueue.shift();
+    if (data.type !== 'init' &&
+	calcObj.state !== st.generatorReady &&
+	calcObj.state !== st.slrmReady) { // initが完了していない状態では、iniot以外のコマンドは処理しない
+    } else {
+      switch (data.type) {
+      case 'init': if (calcObj.state === st.waitingRobotType) {
+	calcObj.state = st.generatorMaking;
+	ucl_logger?.log('constructing CmdVelGenerator with :',
+			data.filename);
+	ucl_logger?.debug('URDF modifier file is', data.modifier);
+	// 初期化処理
+	const
+	finalPromise = fetch(data.filename)
 	  .then(response => response.json())
-	  .then(modifierData => {
-	    updateLeaves(urdfData, modifierData);
+	  .then(async jsonData => {
+	    let urdfIsSorted = false;
+	    let urdfData = null;
+	    if (Array.isArray(jsonData)) {
+	      urdfData = {...jsonData};
+	      urdfIsSorted = true;
+	    } else {
+	      urdfData = jsonData;
+	    }
+	    const
+	    modifierPromise =
+	      fetch(data.modifier)
+	      .then(response => response.json())
+	      .then(modifierData => {
+		updateLeaves(urdfData, modifierData);
+	      });
+	    await modifierPromise; // modifierの適用が完了するまで待つ
 	    urdfData = Object.values(urdfData);
 	    if (!urdfIsSorted) {
 	      urdfData = sortJointsByHierarchy(urdfData);
@@ -145,24 +185,23 @@ self.onmessage = function(event) {
 	    const {jointModelVector,
 		   jointModelsArray} = createJointModel(SlrmModule, urdfData);
 	    ucl_logger?.debug('type of SlrmModule.CmdVelGen: '
-			  + typeof SlrmModule.CmdVelGenerator);
-	    cmdVelGen = new SlrmModule.CmdVelGenerator(jointModelVector);
+			      + typeof SlrmModule.CmdVelGenerator);
+	    calcObj.cmdVelGen = new SlrmModule.CmdVelGenerator(jointModelVector);
+	    const cmdVelGen = calcObj.cmdVelGen;
 	    cmdVelGen.heapF64 = SlrmModule.HEAPF64;
 	    jointModelsArray.forEach(model => model.delete());
 	    jointModelVector.delete();
 	    if (cmdVelGen === null || cmdVelGen === undefined) {
 	      ucl_logger?.error('generation of CmdVelGen instance failed');
-	      cmdVelGen = null;
 	      return;
 	    }
 	    if (cmdVelGen !== null && cmdVelGen !== undefined) {
 	      ucl_logger?.debug('CmdVelGen instance created:', cmdVelGen);
 	    }
-
 	    // prepare the main loop object
 	    const revolutes = urdfData.filter(obj =>
 	      obj.$.type === 'revolute' ||
-	      obj.$.type === 'continuous'
+		obj.$.type === 'continuous'
 	    );
 	    calcObj.prepareVectors(revolutes.length, 16);
 	    calcObj.prepareCmdVelGen(cmdVelGen);
@@ -193,8 +232,11 @@ self.onmessage = function(event) {
 	    cmdVelGen?.setJointVelocityLimit(jointVelocityLimit); // ジョイント速度制限を設定
 	    jointVelocityLimit.delete();
 
-	    if (data.linkShapes && self.cdWorkerPort) {
-	      fetch(data.linkShapes)
+	    // commandQueueのdataのparametersに干渉形状の定義があれば
+	    // fetchしてcdWorkerに送る
+	    if (data.linkShapes && self.cdPortHander) {
+	      const
+	      linkShapesPromise = fetch(data.linkShapes)
 		.then(response => response.json())
 		.then(async linkShapes => {
 		  if (linkShapes.length !== revolutes.length + 2) {
@@ -265,48 +307,60 @@ self.onmessage = function(event) {
 		    testPairs = await response.json();
 		  }
 		  packed.testPairs = testPairs;
-		  // cdWorkerにtransferable objectとして送る
-		  self.cdWorkerPort.postMessage({command: 'link_shapes',
-						 shapes: packed,
-						 name: self.myBodyName},
-						[packed.abLayer.buffer,
-						 packed.rbLayer.buffer,
-						 packed.saLayer.buffer,
-						 packed.vertices.buffer]);
+		  if (self.cdPortHander) {
+		    self.abId = await
+		    self.cdPortHander.callRpc({command: 'link_shapes',
+					       shapes: packed,
+					       name: self.myBodyName},
+					      [packed.abLayer.buffer,
+					       packed.rbLayer.buffer,
+					       packed.saLayer.buffer,
+					       packed.vertices.buffer]);
+		  } else {
+		    throw new Error('cdPortHander is not ready to send link shapes data');
+		  }
 		})
 		.catch(error => {
-		  ucl_logger?.error('Error fetching or parsing SHAPE file:',
+		  ucl_logger?.error('Error SHAPE file:',
 				    error);
 		});
+	      await linkShapesPromise; // 干渉形状の送信が完了するまで待つ
 	    }
 	    if (data.bridgeUrl) {
 	      ucl_logger?.debug('recieve bridge URL: ', data.bridgeUrl);
 	      // bridge用のURLが付いているためbridgeが使える
+	      // workerStateSingletonのbridgeオブジェクトにURLをセットし
+	      // 接続して、bridge.messageQueueをsendする
 	      bridge.url = data.bridgeUrl;
-	      bridge.connect();
+	      bridge.connect(); // 
 	    }
 	    // なにかの加減でオブジェクト生成に失敗した場合はここでエラーがthrownされる
 	    calcObj.state = st.generatorReady;
 	    self.postMessage({type: 'generator_ready'});
 	  })
 	  .catch(error => {
-	    ucl_logger?.warn('Error fetching or parsing URDF modifier file:', error);
-	    ucl_logger?.warn('modifier file name:', data.modifier);
+	    ucl_logger?.warn('Err fetching or parsing URDF.JSON file:',
+			     error);
+	    ucl_logger?.warn('URDF file name:', data.filename);
+	    // 新たな'init'を受け付けるために状態をwaitingRobotTypeに戻す
+	    calcObj.state = st.waitingRobotType;
 	  });
-      })
-      .catch(error => {
-	ucl_logger?.error('Error fetching or parsing URDF.JSON file:', error);
-      });
-  } break;
-  case 'set_initial_joints': if (calcObj.state === st.generatorReady ||
-				 calcObj.state === st.slrmReady) {
-    if (data.joints) {
-      // 初期ジョイントの設定処理
-      const joints = new Float64Array(data.joints.length);
-      joints.set(data.joints);
-      calcObj.joints = joints;
-      // prepareRewindQueueu()の前にcalcObj.jointsのセットが必要
-      calcObj.prepareRewindQueue();
+	await finalPromise; // ここで初期化処理全体が完了するまで待つ
+      }
+	break;
+      case 'set_initial_joints':
+	if (calcObj.state === st.generatorReady ||
+	    calcObj.state === st.slrmReady) {
+	  if (data.joints) {
+	    // 初期ジョイントの設定処理
+	    const joints = new Float64Array(data.joints.length);
+	    joints.set(data.joints);
+	    calcObj.joints = joints;
+	    // prepareRewindQueueu()の前にcalcObj.jointsのセットが必要
+	    calcObj.prepareRewindQueue(); // ここでcdWorkerPortの
+	    // onmessageハンドラに付けるcalcObj.setNewData()関数が
+	    // 使用できるようになる
+	    self.cdPortHander.on('collision_pairs', calcObj.setNewData);
       const initialJoints = joints.slice();
       calcObj.initialjoints = initialJoints;
       calcObj.prevJoints = joints.slice();
@@ -418,14 +472,14 @@ self.onmessage = function(event) {
   case 'set_end_effector_orientation':
   case 'set_end_effector_pose':
     // calcObj.stateとcalcObj.subStateが何のときに可能とするかは未定
-    if (makeDoubleVectorG) {
+    if (makeDoubleVector) {
 
       if (data.endEffectorPoint &&
 	  data.endEffectorPoint.length === 3 &&
 	  typeof data.endEffectorPoint[0] === 'number' &&
 	  typeof data.endEffectorPoint[1] === 'number' &&
 	  typeof data.endEffectorPoint[2] === 'number') {
-	const endEffectorPosition = makeDoubleVectorG(data.endEffectorPoint);
+	const endEffectorPosition = makeDoubleVector(data.endEffectorPoint);
 	cmdVelGen?.setEndEffectorPosition(endEffectorPosition);
 	endEffectorPosition.delete();
       }
@@ -439,7 +493,7 @@ self.onmessage = function(event) {
 			    data.endEffectorQuaternion[0],
 			    data.endEffectorQuaternion[1],
 			    data.endEffectorQuaternion[2] ];
-	const endEffectorOrientation = makeDoubleVectorG(eigenQuat);
+	const endEffectorOrientation = makeDoubleVector(eigenQuat);
 	cmdVelGen?.setEndEffectorOrientation(endEffectorOrientation);
 	endEffectorOrientation.delete();
       }
@@ -534,7 +588,7 @@ self.onmessage = function(event) {
     if (calcObj.state === st.generatorReady || calcObj.state === st.slrmReady) {
       if (data.velocityLimit !== undefined) {
 	const jointVelocityLimit
-	      = makeDoubleVectorG(data.velocityLimit);
+	      = makeDoubleVector(data.velocityLimit);
 	if (cmdVelGen?.setJointVelocityLimitSingle(jointVelocityLimit) !== true) {
 	  ucl_logger?.error('set_joint_velocity_limit: failed to set joint velocity limit');
 	}
@@ -581,8 +635,10 @@ self.onmessage = function(event) {
     break;
   default:
     break;
+      }
+    }
   }
-};
+}
 
 
 // ******** main loop ********
@@ -599,13 +655,18 @@ self.onmessage = function(event) {
 const loopIntervalMs = 4
 // let nextLoopTime = performance.now();
 // let prevTime = performance.now();
-function mainLoop() {
+async function mainLoop() {
   const now = performance.now();
   const deltaTime = now - prevTime;
   prevTime = now;
   nextLoopTime += loopIntervalMs;
   // ここにstepの上限をつけること。stepが長くなりすぎると速度フィードバックが破綻する
-  calcObj.step(deltaTime); // time step in milliseconds
+  if (calcObj.state === st.generatorReady ||
+      calcObj.state === st.slrmReady) {
+    // urdf.jsonがfetchされずgeneratorReadyだがslrmReadyでない
+    // ケースは正しく実装されていないため、今のところgeneratorReadyのときはstepしないようにする
+    calcObj.step(deltaTime); // time step in milliseconds
+  }
   if (shutdownFlag === true) {
     self.postMessage({type: 'shutdown_complete'});
     ucl_logger?.log('main loop was finished')
@@ -630,20 +691,22 @@ function mainLoop() {
       bridge.socket.send(binary);
     }
   }
+  await processCommandQueue(); // コマンドキューの処理が完了するまで待つ
   const delay = Math.max(0, nextLoopTime - performance.now());
   setTimeout(mainLoop, delay);
 }
 
+// ******************************
 // ******** worker start ********
+// ******************************
 calcObj.state = st.waitingRobotType;
 self.postMessage({type: 'ready'});
 //
 calcObj.timeInterval = loopIntervalMs;
 let nextLoopTime = performance.now();
 let prevTime = performance.now();
-mainLoop(); // メインループを開始
-// event loop
 
+mainLoop(); // main loopを開始
 
 
 // ******** THE FOLLOWING FUNCTIONS ARE HOISTED ********

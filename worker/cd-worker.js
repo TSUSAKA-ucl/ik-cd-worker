@@ -116,8 +116,8 @@ function main() {
       // デバッグ用にcollisionPairsの内容をログに出す。
       // ucl_logger?.debug('Collision pairs:', collisionPairs);
       if (collisionPairsSize > 0) {
-	const collisionPairsArray = Array.from(collisionPairs.slice(0, collisionPairsSize));
-	//ucl_logger?.debug('Collision pairs array:', collisionPairsArray);
+	// const collisionPairsArray = Array.from(collisionPairs.slice(0, collisionPairsSize));
+	// ucl_logger?.debug('Collision pairs array:', collisionPairsArray);
       }
       // ab毎に必要なrbIdを抽出して、abIdとsequenceとともにik-workerに送る
       // for (let i = 0; i < collidingAbIdsSize; i += 2) {
@@ -195,24 +195,29 @@ function attachOnMessageHandler(port) {
   port.onmessage = (event) => {
     switch (event.data.command) {
     case 'link_shapes': {
+      // これはcallRpcなのでuuidを付けて返す
       const abId = portToId(port, true);
       // self.channel[abId] = port;
       ucl_logger?.debug('Received link_shapes command. abLayer:', event.data.shapes.abLayer);
       registerLinkShapes(abId, event.data.shapes);
       ucl_logger?.log('Registered link shapes for abId', abId);
-      port.postMessage({ command: 'query_ab_id_response',
+      port.postMessage({ command: 'link_shapes_response',
+			 uuid: event.data.uuid,
 			 abId: abId});
     }
       break;
       // 当面、link_shapesコマンドのみで、
       // 座標更新・ab削除・sa層のつけ外しのコマンドは後ほど追加していく予定
     case 'query_ab_id': {
+      // これはcallRpcなのでuuidを付けて返す
       const abId = portToId(port);
       port.postMessage({ command: 'query_ab_id_response',
+			 uuid: event.data.uuid,
 			 abId: abId});
     }
       break;
     case 'rb_poses': {
+      // これはcallRpcではない。最新のseq番号と座標を保存しておくだけ
       const abId = portToId(port);
       if (typeof abId === 'number') { // abIdは必ず数値だが、念のため
 	newestSequence[abId] = event.data.sequence;

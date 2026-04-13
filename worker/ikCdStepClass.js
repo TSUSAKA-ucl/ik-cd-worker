@@ -136,21 +136,6 @@ class IkCdCalc {
   prepareGjkCd(port) {
     ucl_logger?.debug('Preparing GJK Collision Detection with port:', port);
     this.cdPort = port;
-    this.cdPort.onmessage = (event) => {
-      switch (event.data.command) {
-      case 'query_ab_id_response':
-	this.abId = event.data.abId;
-	ucl_logger?.log('Received abId from cdWorker:', this.abId);
-	break;
-      case 'collision_pairs':
-	this.setNewData(event.data.sequence, event.data.rbIds);
-	break;
-      default:
-	ucl_logger?.warn('Unknown command received in cdPort:',
-			 event.data.command);
-	break;
-      }
-    };
   }
   deleteGjkCd() {
   }
