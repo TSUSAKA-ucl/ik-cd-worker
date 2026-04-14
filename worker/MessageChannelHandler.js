@@ -13,7 +13,13 @@ class MessageChannelHandler {
     this.onCallbacks = new Map();
     this.port.onmessage = (event) => {
       const { command, uuid, ...rest } = event.data;
-      // if (this.rpcCallbacks[uuid]) {
+      // if (uuid) {
+      // 	console.warn('**Receive: uuid:',uuid);
+      // 	console.warn('**rpcCallbacks:',this.rpcCallbacks);
+      // }
+      // if (uuid && this.rpcCallbacks.has(uuid)) {
+      // 	console.warn('**RPC callback found for uuid:',uuid);
+      // }
       if (uuid && this.rpcCallbacks.has(uuid)) {
 	const {resolve, timeoutId} = this.rpcCallbacks.get(uuid);
 	clearTimeout(timeoutId);
@@ -27,22 +33,26 @@ class MessageChannelHandler {
     };
   }
 
-  async callRpc(data, timeout = 1000) {
+  async callRpc(data, transfers, timeout = 1000) {
     const uuid = crypto.randomUUID();
     return new Promise((resolve, reject) => {
       const timeoutId = setTimeout(() => {
 	if (this.rpcCallbacks.has(uuid)) {
+	  // console.warn('**RPC timeout for uuid:',uuid);
+	  // console.warn('**rpcCallbacks at timeout:',this.rpcCallbacks);
 	  this.rpcCallbacks.delete(uuid);
 	  reject(new Error('RPC timeout: ' + data.command));
 	}
       }, timeout);
       this.rpcCallbacks.set(uuid, { resolve, timeoutId });
-      this.port.postMessage({ command: data.command, uuid, ...data });
+      // console.warn('**Call RPC: uuid:',uuid, 'map:', this.rpcCallbacks);
+      this.port.postMessage({ command: data.command, uuid, ...data }, transfers);
     });
   }
 
-  post(data) {
-    this.port.postMessage(data);
+  post(data, transfers = []) {
+    //  console.warn('**Post message:', data);
+    this.port.postMessage(data, transfers);
   }
 
   on(command, callback) {

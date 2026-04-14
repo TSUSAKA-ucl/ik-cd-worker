@@ -17,7 +17,7 @@ import { encode } from '@msgpack/msgpack';
 import { st, sst, bridge } from './workerStateSingleton.js';
 // import { updateLeaves, sortJointsByHierarchy } from './urdfUtils.js';
 import { IkCdCalc } from './ikCdStepClass.js';
-import { MessageChannelHandler } from './MessageChannelHandler.js';
+import MessageChannelHandler from './MessageChannelHandler.js';
 
 // ****************
 // workerの終了フラグ <- 終了時の後始末用
@@ -123,7 +123,8 @@ self.onmessage = function(event) {
     self.cdWorkerPort = data.port;
     self.myBodyName = data.from;
     calcObj.prepareGjkCd(self.cdWorkerPort);
-    self.cdPortHander = new MessageChannelHandler(self.cdWorkerPort);
+    self.cdPortHandler = new MessageChannelHandler(self.cdWorkerPort);
+    calcObj.cdPortHandler = self.cdPortHandler; // calcObjからもアクセスできるようにする
     // setNewDataは、repareRewindQueue()の中で定義される関数であるため、
     // ここでは定義できない
     //   switch (event.data.command) {
@@ -141,7 +142,7 @@ self.onmessage = function(event) {
 };
 
 async function processCommandQueue() {
-  const cmdVelGen = calcObj.cmdVelGen; // CmdVelGeneratorのインスタンスを保持する変数
+  let cmdVelGen = calcObj.cmdVelGen; // CmdVelGeneratorのインスタンスを保持する変数
   const { makeDoubleVector } = createHelpers(SlrmModule);
   while (commandQueue.length > 0) {
     const data = commandQueue.shift();
@@ -149,6 +150,9 @@ async function processCommandQueue() {
 	calcObj.state !== st.generatorReady &&
 	calcObj.state !== st.slrmReady) { // initが完了していない状態では、iniot以外のコマンドは処理しない
     } else {
+      // if (data.type !== 'destination') {
+      // 	ucl_logger?.debug('Processing command from queue:', data);
+      // }
       switch (data.type) {
       case 'init': if (calcObj.state === st.waitingRobotType) {
 	calcObj.state = st.generatorMaking;
@@ -187,7 +191,7 @@ async function processCommandQueue() {
 	    ucl_logger?.debug('type of SlrmModule.CmdVelGen: '
 			      + typeof SlrmModule.CmdVelGenerator);
 	    calcObj.cmdVelGen = new SlrmModule.CmdVelGenerator(jointModelVector);
-	    const cmdVelGen = calcObj.cmdVelGen;
+	    cmdVelGen = calcObj.cmdVelGen;
 	    cmdVelGen.heapF64 = SlrmModule.HEAPF64;
 	    jointModelsArray.forEach(model => model.delete());
 	    jointModelVector.delete();
@@ -234,7 +238,7 @@ async function processCommandQueue() {
 
 	    // commandQueueのdataのparametersに干渉形状の定義があれば
 	    // fetchしてcdWorkerに送る
-	    if (data.linkShapes && self.cdPortHander) {
+	    if (data.linkShapes && self.cdPortHandler) {
 	      const
 	      linkShapesPromise = fetch(data.linkShapes)
 		.then(response => response.json())
@@ -307,17 +311,19 @@ async function processCommandQueue() {
 		    testPairs = await response.json();
 		  }
 		  packed.testPairs = testPairs;
-		  if (self.cdPortHander) {
+		  if (self.cdPortHandler) {
 		    self.abId = await
-		    self.cdPortHander.callRpc({command: 'link_shapes',
+		    self.cdPortHandler.callRpc({command: 'link_shapes',
 					       shapes: packed,
 					       name: self.myBodyName},
 					      [packed.abLayer.buffer,
 					       packed.rbLayer.buffer,
 					       packed.saLayer.buffer,
-					       packed.vertices.buffer]);
+					       packed.vertices.buffer],
+					     500); // 0.5秒のタイムアウトを設定
+		    calcObj.abId = self.abId; // calcObjからもアクセスできるようにする
 		  } else {
-		    throw new Error('cdPortHander is not ready to send link shapes data');
+		    throw new Error('cdPortHandler is not ready to send link shapes data');
 		  }
 		})
 		.catch(error => {
@@ -346,6 +352,7 @@ async function processCommandQueue() {
 	    calcObj.state = st.waitingRobotType;
 	  });
 	await finalPromise; // ここで初期化処理全体が完了するまで待つ
+	ucl_logger?.debug('Initialization complete, finalPromise resolved');
       }
 	break;
       case 'set_initial_joints':
@@ -360,281 +367,281 @@ async function processCommandQueue() {
 	    calcObj.prepareRewindQueue(); // ここでcdWorkerPortの
 	    // onmessageハンドラに付けるcalcObj.setNewData()関数が
 	    // 使用できるようになる
-	    self.cdPortHander.on('collision_pairs', calcObj.setNewData);
-      const initialJoints = joints.slice();
-      calcObj.initialjoints = initialJoints;
-      calcObj.prevJoints = joints.slice();
-      // velocities = new Float64Array(joints.length);
-      ucl_logger?.debug('Setting initial joints:'
-		  +joints.map(v => (v*57.2958).toFixed(1)).join(', '));
-      if (!calcObj.jointRewinder ||
-	  joints.length !== calcObj.jointRewinder.length) {
-	// 面倒なので、ジョイント数が変わった場合はjointRewinderを全部再生成
-	// jointRewinder = Array.from({length: joints.length}, ()=>new TrapVelocGenerator(5,1,1,0.0625));
-	calcObj.jointRewinder = Array(joints.length).fill(null)
-	  .map((_, i) => {
-	    if (i<=1) { // joint 1, 2は特に遅くする
-	      return new TrapVelocGenerator(5, 1, 0.2, 0.02);
-	    } else {
-	      return new TrapVelocGenerator(5, 1, 1, 0.0625); // 5s, 1m/s, 1rad/s, 0.0625s
+	    self.cdPortHandler.on('collision_pairs', calcObj.setNewData);
+	    const initialJoints = joints.slice();
+	    calcObj.initialjoints = initialJoints;
+	    calcObj.prevJoints = joints.slice();
+	    // velocities = new Float64Array(joints.length);
+	    ucl_logger?.debug('Setting initial joints:'
+			      +joints.map(v => (v*57.2958).toFixed(1)).join(', '));
+	    if (!calcObj.jointRewinder ||
+		joints.length !== calcObj.jointRewinder.length) {
+	      // 面倒なので、ジョイント数が変わった場合はjointRewinderを全部再生成
+	      // jointRewinder = Array.from({length: joints.length}, ()=>new TrapVelocGenerator(5,1,1,0.0625));
+	      calcObj.jointRewinder = Array(joints.length).fill(null)
+		.map((_, i) => {
+		  if (i<=1) { // joint 1, 2は特に遅くする
+		    return new TrapVelocGenerator(5, 1, 0.2, 0.02);
+		  } else {
+		    return new TrapVelocGenerator(5, 1, 1, 0.0625); // 5s, 1m/s, 1rad/s, 0.0625s
+		  }
+		});
 	    }
-	  });
-      }
-      calcObj.jointRewinder
-	.forEach((der,ix)=>{der.reset(); der.setX0(initialJoints[ix])});
-      calcObj.state = st.slrmReady;
-      calcObj.noDestination = true;
-      calcObj.subState = sst.moving; // 目標位置に移動中
-      // calcObj.subState = sst.converged;
-      ucl_logger?.log('Worker state changed to slrmReady');
-    }
-  } break;
-  case 'set_base_coord':
-    // まず引数のdata.baseCoordが正しいか確認する。サイズ16でbaseCoord[15]>0ならば有効とみなす。
-    if (!data.baseCoord || data.baseCoord.length !== 16 || data.baseCoord[15] <= 0) {
-      ucl_logger?.error('Invalid baseCoord data received:', data.baseCoord);
-    } else {
-      // cmdVelGenがemscriptenのmodule factoryの生成物の場合は、ここで直接セットする。
-      // cmdVelGenにセットしたらglobal_base_coordは未定義にする
-      // cmdVelGenがemscriptenのオブジェクトで無い場合は, global_base_coordを更新して、
-      // calcObjのstep関数内でcmdVelGenにセットする。
-      if (cmdVelGen && typeof cmdVelGen.notifyWTBaseBufferUpdated === 'function') {
-	const ptr = cmdVelGen.getWTBaseBufferPtr();
-	const size = cmdVelGen.getWTBaseBufferSize();
-	if (ptr && size) {
-	  const wTbaseArray = new Float64Array(SlrmModule.HEAPF64.buffer, ptr, size);
-	  wTbaseArray.set(data.baseCoord);
-	  cmdVelGen.notifyWTBaseBufferUpdated();
-	  global_base_coord.set(data.baseCoord);
-	  global_base_coord[15] = -1; // 使用済、未定義にする
-	  ucl_logger?.debug('Base coordinate updated: ' +
-			    data.baseCoord.slice(0,4).map(v => v.toFixed(3)).join(', ')+
-			    ' ...');
+	    calcObj.jointRewinder
+	      .forEach((der,ix)=>{der.reset(); der.setX0(initialJoints[ix])});
+	    calcObj.state = st.slrmReady;
+	    calcObj.noDestination = true;
+	    calcObj.subState = sst.moving; // 目標位置に移動中
+	    // calcObj.subState = sst.converged;
+	    ucl_logger?.log('Worker state changed to slrmReady');
+	  }
+	} break;
+      case 'set_base_coord':
+	// まず引数のdata.baseCoordが正しいか確認する。サイズ16でbaseCoord[15]>0ならば有効とみなす。
+	if (!data.baseCoord || data.baseCoord.length !== 16 || data.baseCoord[15] <= 0) {
+	  ucl_logger?.error('Invalid baseCoord data received:', data.baseCoord);
 	} else {
-	  ucl_logger?.error('Failed to get wTbase buffer pointer or size');
+	  // cmdVelGenがemscriptenのmodule factoryの生成物の場合は、ここで直接セットする。
+	  // cmdVelGenにセットしたらglobal_base_coordは未定義にする
+	  // cmdVelGenがemscriptenのオブジェクトで無い場合は, global_base_coordを更新して、
+	  // calcObjのstep関数内でcmdVelGenにセットする。
+	  if (cmdVelGen && typeof cmdVelGen.notifyWTBaseBufferUpdated === 'function') {
+	    const ptr = cmdVelGen.getWTBaseBufferPtr();
+	    const size = cmdVelGen.getWTBaseBufferSize();
+	    if (ptr && size) {
+	      const wTbaseArray = new Float64Array(SlrmModule.HEAPF64.buffer, ptr, size);
+	      wTbaseArray.set(data.baseCoord);
+	      cmdVelGen.notifyWTBaseBufferUpdated();
+	      global_base_coord.set(data.baseCoord);
+	      global_base_coord[15] = -1; // 使用済、未定義にする
+	      ucl_logger?.debug('Base coordinate updated: ' +
+				data.baseCoord.slice(0,4).map(v => v.toFixed(3)).join(', ')+
+				' ...');
+	    } else {
+	      ucl_logger?.error('Failed to get wTbase buffer pointer or size');
+	    }
+	  } else { // cmdVelGenが存在しないか、notifyWTBaseBufferUpdatedが関数でない 
+	    global_base_coord.set(data.baseCoord);
+	    ucl_logger?.debug('Base coordinate stored in global_base_coord: ' +
+			      data.baseCoord.slice(0,4).map(v => v.toFixed(3)).join(', ') +
+			      ' ...');
+	  }
 	}
-      } else { // cmdVelGenが存在しないか、notifyWTBaseBufferUpdatedが関数でない 
-	global_base_coord.set(data.baseCoord);
-	ucl_logger?.debug('Base coordinate stored in global_base_coord: ' +
-			  data.baseCoord.slice(0,4).map(v => v.toFixed(3)).join(', ') +
-			  ' ...');
-      }
-    }
-    break;
-  case 'destination': if (calcObj.state === st.slrmReady &&
-			  calcObj.subState !== sst.rewinding &&
-			  calcObj.subState !== sst.jMoving &&
-			  data.endLinkPose ) {
-    // データの受信処理
-    //newDestinationFlag = true; // 新しいdestinationが来た
-    calcObj.controllerTfVec.set(data.endLinkPose);
-    ucl_logger?.debug('Received destination: '
-		+ calcObj.controllerTfVec[12].toFixed(3) + ', '
-		+ calcObj.controllerTfVec[13].toFixed(3) + ', '
-		+ calcObj.controllerTfVec[14].toFixed(3));
-    calcObj.subState = sst.moving;
-  } break;
-  case 'set_joint_targets':
-    if (data.jointTargets &&
-	calcObj.state === st.slrmReady ) {
-      if (calcObj.subState !== sst.rewinding &&
-	  calcObj.subState !== sst.moving ) {
-	if (data.jointTargets.length === calcObj.joints.length) {
-	  // controllerJointVec = [...data.jointTargets];
-	  calcObj.controllerJointVec.set(data.jointTargets);
-	  calcObj.subState = sst.jMoving;
+	break;
+      case 'destination': if (calcObj.state === st.slrmReady &&
+			      calcObj.subState !== sst.rewinding &&
+			      calcObj.subState !== sst.jMoving &&
+			      data.endLinkPose ) {
+	// データの受信処理
+	//newDestinationFlag = true; // 新しいdestinationが来た
+	calcObj.controllerTfVec.set(data.endLinkPose);
+	ucl_logger?.debug('Received destination: '
+			  + calcObj.controllerTfVec[12].toFixed(3) + ', '
+			  + calcObj.controllerTfVec[13].toFixed(3) + ', '
+			  + calcObj.controllerTfVec[14].toFixed(3));
+	calcObj.subState = sst.moving;
+      } break;
+      case 'set_joint_targets':
+	if (data.jointTargets &&
+	    calcObj.state === st.slrmReady ) {
+	  if (calcObj.subState !== sst.rewinding &&
+	      calcObj.subState !== sst.moving ) {
+	    if (data.jointTargets.length === calcObj.joints.length) {
+	      // controllerJointVec = [...data.jointTargets];
+	      calcObj.controllerJointVec.set(data.jointTargets);
+	      calcObj.subState = sst.jMoving;
+	    } else {
+	      ucl_logger?.error('set_joint_targets: jointTargets length mismatch:',
+				data.jointTargets.length, 'vs',
+				calcObj.joints.length);
+	    }
+	  } else {
+	    const cmd = { type: 'jMove', joints: data.jointTargets };
+	    moveCommandQueue.push(cmd);
+	  }
 	} else {
-	  ucl_logger?.error('set_joint_targets: jointTargets length mismatch:',
-					   data.jointTargets.length, 'vs',
-					   calcObj.joints.length);
+	  ucl_logger?.warn('Ignored set_joint_targets command.');
+	  ucl_logger?.warn('set_joint_targets: invalid state or missing jointTargets');
+	  ucl_logger?.warn('  calcObj.state:', calcObj.state, ' calcObj.subState:', calcObj.subState);
 	}
-      } else {
-	const cmd = { type: 'jMove', joints: data.jointTargets };
-	moveCommandQueue.push(cmd);
-      }
-    } else {
-      ucl_logger?.warn('Ignored set_joint_targets command.');
-      ucl_logger?.warn('set_joint_targets: invalid state or missing jointTargets');
-      ucl_logger?.warn('  calcObj.state:', calcObj.state, ' calcObj.subState:', calcObj.subState);
-    }
-    break;
-  case 'slow_rewind':
-    if (calcObj.state === st.slrmReady && calcObj.jointRewinder) {
-      if (data.slowRewind == true) {
-	calcObj.subState = sst.rewinding;
-      } else {
-	calcObj.subState = sst.converged;
-      }
-    }
-    break;
-  case 'set_end_effector_point':
-  case 'set_end_effector_position':
-  case 'set_end_effector_orientation':
-  case 'set_end_effector_pose':
-    // calcObj.stateとcalcObj.subStateが何のときに可能とするかは未定
-    if (makeDoubleVector) {
+	break;
+      case 'slow_rewind':
+	if (calcObj.state === st.slrmReady && calcObj.jointRewinder) {
+	  if (data.slowRewind == true) {
+	    calcObj.subState = sst.rewinding;
+	  } else {
+	    calcObj.subState = sst.converged;
+	  }
+	}
+	break;
+      case 'set_end_effector_point':
+      case 'set_end_effector_position':
+      case 'set_end_effector_orientation':
+      case 'set_end_effector_pose':
+	// calcObj.stateとcalcObj.subStateが何のときに可能とするかは未定
+	if (makeDoubleVector) {
 
-      if (data.endEffectorPoint &&
-	  data.endEffectorPoint.length === 3 &&
-	  typeof data.endEffectorPoint[0] === 'number' &&
-	  typeof data.endEffectorPoint[1] === 'number' &&
-	  typeof data.endEffectorPoint[2] === 'number') {
-	const endEffectorPosition = makeDoubleVector(data.endEffectorPoint);
-	cmdVelGen?.setEndEffectorPosition(endEffectorPosition);
-	endEffectorPosition.delete();
-      }
-      if (data.endEffectorQuaternion &&
-	  data.endEffectorQuaternion.length === 4 &&
-	  typeof data.endEffectorQuaternion[0] === 'number' &&
-	  typeof data.endEffectorQuaternion[1] === 'number' &&
-	  typeof data.endEffectorQuaternion[2] === 'number' &&
-	  typeof data.endEffectorQuaternion[3] === 'number') {
-	const eigenQuat = [ data.endEffectorQuaternion[3],
-			    data.endEffectorQuaternion[0],
-			    data.endEffectorQuaternion[1],
-			    data.endEffectorQuaternion[2] ];
-	const endEffectorOrientation = makeDoubleVector(eigenQuat);
-	cmdVelGen?.setEndEffectorOrientation(endEffectorOrientation);
-	endEffectorOrientation.delete();
-      }
-      const tmp = calcObj.subState;
-      calcObj.subState = sst.moving; // アームをee移動分だけ動かすために一回呼ぶ
-      // endLinkPoseVec = []; // 現在値をゴールにしてcalcVelocityPQを1回実行する
-      calcObj.noDestination = true;
-      // mainFunc(0); // ここでeeの位置を更新
-      calcObj.step(0);
-      calcObj.subState = tmp; // 元の状態に戻す
-    }
-    break;
-  case 'set_exact_solution':
-    if (calcObj.state === st.generatorReady || calcObj.state === st.slrmReady) {
-      if (data.exactSolution !== undefined) {
-	if (data.exactSolution === true) {
-	  calcObj.exactSolution = true;
-	} else {
-	  calcObj.exactSolution = false;
+	  if (data.endEffectorPoint &&
+	      data.endEffectorPoint.length === 3 &&
+	      typeof data.endEffectorPoint[0] === 'number' &&
+	      typeof data.endEffectorPoint[1] === 'number' &&
+	      typeof data.endEffectorPoint[2] === 'number') {
+	    const endEffectorPosition = makeDoubleVector(data.endEffectorPoint);
+	    cmdVelGen?.setEndEffectorPosition(endEffectorPosition);
+	    endEffectorPosition.delete();
+	  }
+	  if (data.endEffectorQuaternion &&
+	      data.endEffectorQuaternion.length === 4 &&
+	      typeof data.endEffectorQuaternion[0] === 'number' &&
+	      typeof data.endEffectorQuaternion[1] === 'number' &&
+	      typeof data.endEffectorQuaternion[2] === 'number' &&
+	      typeof data.endEffectorQuaternion[3] === 'number') {
+	    const eigenQuat = [ data.endEffectorQuaternion[3],
+				data.endEffectorQuaternion[0],
+				data.endEffectorQuaternion[1],
+				data.endEffectorQuaternion[2] ];
+	    const endEffectorOrientation = makeDoubleVector(eigenQuat);
+	    cmdVelGen?.setEndEffectorOrientation(endEffectorOrientation);
+	    endEffectorOrientation.delete();
+	  }
+	  const tmp = calcObj.subState;
+	  calcObj.subState = sst.moving; // アームをee移動分だけ動かすために一回呼ぶ
+	  // endLinkPoseVec = []; // 現在値をゴールにしてcalcVelocityPQを1回実行する
+	  calcObj.noDestination = true;
+	  // mainFunc(0); // ここでeeの位置を更新
+	  calcObj.step(0);
+	  calcObj.subState = tmp; // 元の状態に戻す
 	}
-	cmdVelGen?.setExactSolution(calcObj.exactSolution);
-	ucl_logger?.log('Exact solution for singularity set to: ',
-		    calcObj.exactSolution);
-      }
-    }
-    break;
-  case 'set_joint_weights':
-    if (calcObj.state === st.generatorReady ||
-	calcObj.state === st.slrmReady) {
-      if (data.jointNumber !== undefined &&
-	  data.jointWeight !== undefined) {
-	if (cmdVelGen?.setJointWeight &&
-	    cmdVelGen?.setJointWeight(data.jointNumber, data.jointWeight) !== true) {
-	  ucl_logger?.error('set_joint_weights: failed to set weight for joint number ',
-			data.jointNumber);
+	break;
+      case 'set_exact_solution':
+	if (calcObj.state === st.generatorReady || calcObj.state === st.slrmReady) {
+	  if (data.exactSolution !== undefined) {
+	    if (data.exactSolution === true) {
+	      calcObj.exactSolution = true;
+	    } else {
+	      calcObj.exactSolution = false;
+	    }
+	    cmdVelGen?.setExactSolution(calcObj.exactSolution);
+	    ucl_logger?.log('Exact solution for singularity set to: ',
+			    calcObj.exactSolution);
+	  }
 	}
-      }
-    }
-    break;
-  case 'set_joint_desirable_vlimit':
-    if (calcObj.state === st.generatorReady ||
-	calcObj.state === st.slrmReady) {
-      if (data.jointNumber === undefined) { data.jointNumber = -1; } // 全関節に適用
-      if (data.velocityLimit !== undefined) {
-	if (cmdVelGen?.setJointDesirableVelocityLimit &&
-	    cmdVelGen?.setJointDesirableVelocityLimit(data.jointNumber,
-						     data.velocityLimit) !== true) {
-	  ucl_logger?.error('set_joint_desirable_vlimit: failed to set desirable velocity limit for joint number ',
-			data.jointNumber);
+	break;
+      case 'set_joint_weights':
+	if (calcObj.state === st.generatorReady ||
+	    calcObj.state === st.slrmReady) {
+	  if (data.jointNumber !== undefined &&
+	      data.jointWeight !== undefined) {
+	    if (cmdVelGen?.setJointWeight &&
+		cmdVelGen?.setJointWeight(data.jointNumber, data.jointWeight) !== true) {
+	      ucl_logger?.error('set_joint_weights: failed to set weight for joint number ',
+				data.jointNumber);
+	    }
+	  }
 	}
-      }
-    }
-    break;
-  case 'clear_joint_desirable':
-    if (calcObj.state === st.generatorReady ||
-	calcObj.state === st.slrmReady) {
-      if (data.jointNumber !== undefined) {
-	if (cmdVelGen?.setJointDesirable &&
-	    cmdVelGen?.setJointDesirable(data.jointNumber, false) !== true) {
-	  ucl_logger?.error('clear_joint_desirable: failed to clear desirable for joint number ',
-			data.jointNumber);
+	break;
+      case 'set_joint_desirable_vlimit':
+	if (calcObj.state === st.generatorReady ||
+	    calcObj.state === st.slrmReady) {
+	  if (data.jointNumber === undefined) { data.jointNumber = -1; } // 全関節に適用
+	  if (data.velocityLimit !== undefined) {
+	    if (cmdVelGen?.setJointDesirableVelocityLimit &&
+		cmdVelGen?.setJointDesirableVelocityLimit(data.jointNumber,
+							  data.velocityLimit) !== true) {
+	      ucl_logger?.error('set_joint_desirable_vlimit: failed to set desirable velocity limit for joint number ',
+				data.jointNumber);
+	    }
+	  }
 	}
-      }
-    }
-    break;
-  case 'set_joint_desirable':
-    ucl_logger?.debug('in worker, set_joint_desirable called:', data);
-    if (calcObj.state === st.generatorReady || calcObj.state === st.slrmReady) {
-      if (data.jointNumber !== undefined &&
-	  data.lower !== undefined && data.upper !== undefined &&
-	  data.gain !== undefined) {
-	ucl_logger?.debug('in worker, set_joint_desirable: jointNumber=', data.jointNumber,
-		    ' lower=', data.lower,
-		    ' upper=', data.upper,
-		    ' gain=', data.gain);
-	if (cmdVelGen?.setJointDesirable &&
-	    cmdVelGen?.setJointDesirable(data.jointNumber, true,
-					data.lower,
-					data.upper,
-					data.gain) !== true) {
-	  ucl_logger?.error('set_joint_desirable: failed to set desirable for joint number ',
-			data.jointNumber);
+	break;
+      case 'clear_joint_desirable':
+	if (calcObj.state === st.generatorReady ||
+	    calcObj.state === st.slrmReady) {
+	  if (data.jointNumber !== undefined) {
+	    if (cmdVelGen?.setJointDesirable &&
+		cmdVelGen?.setJointDesirable(data.jointNumber, false) !== true) {
+	      ucl_logger?.error('clear_joint_desirable: failed to clear desirable for joint number ',
+				data.jointNumber);
+	    }
+	  }
 	}
-      }
-    }
-    break;
-  // case 'set_linear_velocity_limit':
-  // case 'set_angular_velocity_limit':
-  // case 'set_linear_gain':
-  // case 'set_angular_gain':
-  case 'set_joint_velocity_limit':
-    if (calcObj.state === st.generatorReady || calcObj.state === st.slrmReady) {
-      if (data.velocityLimit !== undefined) {
-	const jointVelocityLimit
-	      = makeDoubleVector(data.velocityLimit);
-	if (cmdVelGen?.setJointVelocityLimitSingle(jointVelocityLimit) !== true) {
-	  ucl_logger?.error('set_joint_velocity_limit: failed to set joint velocity limit');
+	break;
+      case 'set_joint_desirable':
+	ucl_logger?.debug('in worker, set_joint_desirable called:', data);
+	if (calcObj.state === st.generatorReady || calcObj.state === st.slrmReady) {
+	  if (data.jointNumber !== undefined &&
+	      data.lower !== undefined && data.upper !== undefined &&
+	      data.gain !== undefined) {
+	    ucl_logger?.debug('in worker, set_joint_desirable: jointNumber=', data.jointNumber,
+			      ' lower=', data.lower,
+			      ' upper=', data.upper,
+			      ' gain=', data.gain);
+	    if (cmdVelGen?.setJointDesirable &&
+		cmdVelGen?.setJointDesirable(data.jointNumber, true,
+					     data.lower,
+					     data.upper,
+					     data.gain) !== true) {
+	      ucl_logger?.error('set_joint_desirable: failed to set desirable for joint number ',
+				data.jointNumber);
+	    }
+	  }
 	}
-	jointVelocityLimit.delete();
-      } else {
-	ucl_logger?.error('set_joint_velocity_limit: velocityLimit is undefined');
-      }
-    }
-    break;
-  case 'set_ignore_collisions':
-    if (calcObj.state === st.generatorReady ||
-	calcObj.state === st.slrmReady) {
-      if (data.ignoreCollisions !== undefined) {
-	calcObj.ignoreCollision = data.ignoreCollisions;
-	ucl_logger?.log('Ignore collisions set to: ',
-		    calcObj.ignoreCollision);
-      }
-    }
-    break;
-  case 'set_ignore_joint_limits':
-    if (calcObj.state === st.generatorReady ||
-	calcObj.state === st.slrmReady) {
-      if (data.ignoreJointLimits !== undefined) {
-	calcObj.ignoreJointLimits = data.ignoreJointLimits;
-	ucl_logger?.log('Ignore joint limits set to: ', calcObj.ignoreJointLimits);
-      }
-    }
-    break;
+	break;
+	// case 'set_linear_velocity_limit':
+	// case 'set_angular_velocity_limit':
+	// case 'set_linear_gain':
+	// case 'set_angular_gain':
+      case 'set_joint_velocity_limit':
+	if (calcObj.state === st.generatorReady || calcObj.state === st.slrmReady) {
+	  if (data.velocityLimit !== undefined) {
+	    const jointVelocityLimit
+		  = makeDoubleVector(data.velocityLimit);
+	    if (cmdVelGen?.setJointVelocityLimitSingle(jointVelocityLimit) !== true) {
+	      ucl_logger?.error('set_joint_velocity_limit: failed to set joint velocity limit');
+	    }
+	    jointVelocityLimit.delete();
+	  } else {
+	    ucl_logger?.error('set_joint_velocity_limit: velocityLimit is undefined');
+	  }
+	}
+	break;
+      case 'set_ignore_collisions':
+	if (calcObj.state === st.generatorReady ||
+	    calcObj.state === st.slrmReady) {
+	  if (data.ignoreCollisions !== undefined) {
+	    calcObj.ignoreCollision = data.ignoreCollisions;
+	    ucl_logger?.log('Ignore collisions set to: ',
+			    calcObj.ignoreCollision);
+	  }
+	}
+	break;
+      case 'set_ignore_joint_limits':
+	if (calcObj.state === st.generatorReady ||
+	    calcObj.state === st.slrmReady) {
+	  if (data.ignoreJointLimits !== undefined) {
+	    calcObj.ignoreJointLimits = data.ignoreJointLimits;
+	    ucl_logger?.log('Ignore joint limits set to: ', calcObj.ignoreJointLimits);
+	  }
+	}
+	break;
 
-  case 'set_joint_limit_keep_moving':
-    ucl_logger?.debug('Joint limit keep moving: command received');
-    ucl_logger?.debug('data:', data);
-    ucl_logger?.debug('arg:', data.jointLimitKeepMoving);
-    ucl_logger?.debug('calcObj.state:', calcObj.state);
-    if (calcObj.state === st.generatorReady ||
-	calcObj.state === st.slrmReady) {
-      if (data.jointLimitKeepMoving !== undefined) {
+      case 'set_joint_limit_keep_moving':
+	ucl_logger?.debug('Joint limit keep moving: command received');
+	ucl_logger?.debug('data:', data);
+	ucl_logger?.debug('arg:', data.jointLimitKeepMoving);
+	ucl_logger?.debug('calcObj.state:', calcObj.state);
+	if (calcObj.state === st.generatorReady ||
+	    calcObj.state === st.slrmReady) {
+	  if (data.jointLimitKeepMoving !== undefined) {
 
-	calcObj.jointLimitKeepMoving = data.jointLimitKeepMoving;
-	ucl_logger?.log('Joint limit keep moving set to: ',
-			calcObj.jointLimitKeepMoving);
-      }
-    }
-    break;
-  default:
-    break;
+	    calcObj.jointLimitKeepMoving = data.jointLimitKeepMoving;
+	    ucl_logger?.log('Joint limit keep moving set to: ',
+			    calcObj.jointLimitKeepMoving);
+	  }
+	}
+	break;
+      default:
+	  break;
       }
     }
   }

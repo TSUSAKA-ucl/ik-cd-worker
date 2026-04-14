@@ -138,7 +138,7 @@ function main() {
 	}
 	self.channel[abId].postMessage({ command: 'collision_pairs',
 					 sequence: cdModule._query_ab_sequence(abId),
-					 rbIds: abCollisionRbIds});
+					 data: abCollisionRbIds});
       }
     } else {
       if (loopCount === 0) {
@@ -199,6 +199,7 @@ function attachOnMessageHandler(port) {
       const abId = portToId(port, true);
       // self.channel[abId] = port;
       ucl_logger?.debug('Received link_shapes command. abLayer:', event.data.shapes.abLayer);
+      ucl_logger?.debug('Received link_shapes command. uuid:', event.data.uuid);
       registerLinkShapes(abId, event.data.shapes);
       ucl_logger?.log('Registered link shapes for abId', abId);
       port.postMessage({ command: 'link_shapes_response',
@@ -217,6 +218,8 @@ function attachOnMessageHandler(port) {
     }
       break;
     case 'rb_poses': {
+      // console.warn('Received rb_poses command. abId:', portToId(port),
+      // 		   'sequence:', event.data.sequence, 'poses:', event.data.poses);
       // これはcallRpcではない。最新のseq番号と座標を保存しておくだけ
       const abId = portToId(port);
       if (typeof abId === 'number') { // abIdは必ず数値だが、念のため

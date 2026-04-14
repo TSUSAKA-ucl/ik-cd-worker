@@ -47,14 +47,14 @@ export default async function IkWorkerManager({robotName,
 	  // console.dir(entity.sceneEl);
 	  // console.warn('$$$$$$$$$$ sceneEl.systems: ',
 	  // 	       entity.sceneEl?.systems['cd-worker-system']);
-	  globalThis.__customLogger?.warn('Creating a new cd-worke: sceneEl.systems', entity.sceneEl.systems);
+	  globalThis.__customLogger?.debug('Creating a new cd-worke: sceneEl.systems', entity.sceneEl.systems);
 	  entity.sceneEl.systems.cdWorker = { current: null, ready: false, el: entity.sceneEl };
 	  entity.sceneEl.systems.cdWorker.promise = new Promise((resolve, reject) => {
-	    globalThis.__customLogger?.warn('Creating cd-worker...');
+	    globalThis.__customLogger?.debug('Creating cd-worker...');
 	    const cdWorker = new Worker('/cd-worker.js', { type: 'module', name: 'cd-worker'});
 	    entity.sceneEl.systems.cdWorker.current = cdWorker;
 	    cdWorkerRef = entity.sceneEl.systems.cdWorker;
-	    globalThis.__customLogger?.warn('cd-worker created, waiting for ready message...');
+	    globalThis.__customLogger?.debug('cd-worker created, waiting for ready message...');
 	    cdWorker.onmessage = (event) => {
 	      if (event.data.type === 'cd_worker_ready') {
 		globalThis.__customLogger?.debug('cd-worker is ready');

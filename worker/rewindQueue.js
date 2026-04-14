@@ -63,7 +63,9 @@ class RewindQueue {
   }
   getOnmessageHandler() {
     // onmessageのスロットデコードで該当したときに呼ぶべき関数
-    return (sequence, data) => {
+    return (rest) => {
+      const sequence = rest.sequence;
+      const data = rest.data;
       this.#cleanUpQueue(sequence, !(data.length > 0));
       this.newestResult = data;
       this.newestSeq = sequence;

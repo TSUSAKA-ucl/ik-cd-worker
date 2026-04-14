@@ -144,7 +144,7 @@ class IkCdCalc {
   // cd_workerに干渉チェック対象の剛体の位置姿勢を送る
   sendLinkCoordsToCd(joints) {
     if (!this.ignoreCollision &&
-	this.cdPort &&
+	this.cdPortHandler &&
 	this.abId !== undefined) {
       const ptr = this.cmdVelGen.getJointValuesBufferPtr();
       const size = this.cmdVelGen.getJointValuesBufferSize();
@@ -158,7 +158,7 @@ class IkCdCalc {
 					 srcPtr, srcSize);
       const copiedLinkCoord = linkCoord.slice();
       this.rewindQueue.enqueue(joints);
-      this.cdPort.postMessage({ command: 'rb_poses',
+      this.cdPortHandler.post({ command: 'rb_poses',
 				abId: this.abId,
 				sequence: this.sequence,
 				poses: copiedLinkCoord
@@ -345,6 +345,7 @@ class IkCdCalc {
       case this.SLRM_STAT.END:
 	// 目標位置に到達した場合の処理
 	// cmdPoseExists = false; 
+	this.sendLinkCoordsToCd(this.joints);
 	this.subState = sst.converged;
 	break;
       case this.SLRM_STAT.SIMGILARITY:
