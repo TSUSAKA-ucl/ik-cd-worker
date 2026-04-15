@@ -68,7 +68,7 @@ export default async function IkWorkerManager({robotName,
 	      }
 	    };
 	    cdWorker.onerror = (error) => {
-	      globalThis.__customLogger?.error('Failed to load cd-worker:', error);
+	      globalThis.__customLogger?.error('Failed to load or execute cd-worker:', error);
 	      entity.sceneEl.systems.cdWorker = null;
 	      reject(error);
 	    }
@@ -137,7 +137,10 @@ export default async function IkWorkerManager({robotName,
       }
 	break;
       case 'generator_ready':
+	// console.warn('$*$*$*$ receive generator_ready. entity:',entity);
+	// console.warn('$*$*$*$ receive generator_ready. event.data:', event.data);
 	if (entity) {
+	  if (event.data.ab_id) entity.abId = event.data.ab_id;
 	  entity.ikWorkerReady = true;
 	  entity.emit('ik-worker-ready', null, false);
 	}

@@ -132,11 +132,11 @@ class RewindQueue {
 	// そのseqがqueueに無ければ、先頭(front)を残して全て削除する。
 	// しかし、rear-1のseqより大きい場合は、これは事実上queueがオーバーフローしている状態で良くない。
 	const rear1Seq = this.#queueBody[this.#stepBackIndex(this.#rear)];
-	if (seq > rear1Seq) {
-	  console.warn("WARNING: rewindQueue: cleanUpQueue: OK but seq not found in queue. size:" + this.#currentSize() +
-		       ", seq: " + seq + ", front seq: " + this.#queueBody[this.#front] +
-		       ", rear-1 seq: " + this.#queueBody[this.#stepBackIndex(this.#rear)]);
-	}
+	// if (seq > rear1Seq) {
+	//   console.warn("WARNING: rewindQueue: cleanUpQueue: OK but seq not found in queue. size:" + this.#currentSize() +
+	// 	       ", seq: " + seq + ", front seq: " + this.#queueBody[this.#front] +
+	// 	       ", rear-1 seq: " + this.#queueBody[this.#stepBackIndex(this.#rear)]);
+	// }
 	const rear1 = this.#stepBackIndex(this.#rear);
 	if (seq > this.#queueBody[rear1]) { // 5.
 	  // 先頭(front)を残して全て削除する。

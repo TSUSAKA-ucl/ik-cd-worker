@@ -209,6 +209,49 @@ function attachOnMessageHandler(port) {
       break;
       // 当面、link_shapesコマンドのみで、
       // 座標更新・ab削除・sa層のつけ外しのコマンドは後ほど追加していく予定
+    case 'ignore_pairs': {
+      // これはcallRpcなのでuuidを付けて返す
+      let result = -1;
+      // cd-workerは、abId:linkをrb通し番号に変換して、ignore pairsをメンテする。
+      // test pairs(all)を生成した(どこで??)後にignore pairsを取り除く
+      //
+      // 送られてくるignorePairsは以下のとおり。
+	  // const ignorePairs = new Int32Array(main.ignorePairs.length * 4);
+	  // main.ignorePairs.forEach((pair, index) => {
+	  //   ignorePairs[index*4] = self.abId; // my_abId
+	  //   ignorePairs[index*4 + 1] = pair.myLink;
+	  //   ignorePairs[index*4 + 2] = pair.otherAbId; // other_abId
+	  //   ignorePairs[index*4 + 3] = pair.otherLink;
+	  // } );
+      // linkはab内の相対的なID。このままWASMに渡して、WASM内でrb通し番号に変換
+      // EMSCRIPTEN_KEEPALIVE uintptr_t exception_pairs_alloc(uint32_t length) {
+      // EMSCRIPTEN_KEEPALIVE void add_exception_pairs() // add
+      //if (event.data.ignorePairs && Array.isArray(event.data.ignorePairs)) {
+      // event.data.ignorePairsがInt32Arrayであることを期待しているが、念のためチェックする
+      if (!event.data.ignorePairs || !(event.data.ignorePairs instanceof Int32Array) ||
+	  event.data.ignorePairs.length % 4 !== 0) {
+	ucl_logger?.error('Invalid ignorePairs length:', event.data.ignorePairs.length);
+      } else {
+	ucl_logger?.warn('$$$$$$$$$$ Received ignore_pairs command with', event.data.ignorePairs.length / 4, 'pairs. Processing...'); // 4で割ってペア数を表示
+	const cdModule = self.CdModule;
+	const exceptionPairsPtr = cdModule._exception_pairs_alloc(event.data.ignorePairs.length);
+	// 本当はWASMでvector resizeが成功しているかどうかを返してもらうべきだが、
+	// ここではとりあえず成功している前提で進める
+	const exceptionPairsArray = new Int32Array(self.CdModule.HEAP32.buffer,
+						   exceptionPairsPtr,
+						   event.data.ignorePairs.length);
+	exceptionPairsArray.set(event.data.ignorePairs);
+	cdModule._add_exception_pairs(); // 登録完了したらexceptionPairsPtrのvectorはshrink_to_fitされる
+	// 登録後のignorePairsは、WASM側で管理されるため、ここでは特に何もしない
+	ucl_logger?.warn('$$$$$ Ignore pairs registered in WASM module. Reconstructing test pairs...');
+	cdModule._reconstruct_test_pairs();
+	result = event.data.ignorePairs.length / 4; // 登録したペアの数を返す
+      }
+      port.postMessage({ command: 'ignore_pairs_response',
+			 uuid: event.data.uuid,
+			 result: result});
+    }
+      break;
     case 'query_ab_id': {
       // これはcallRpcなのでuuidを付けて返す
       const abId = portToId(port);

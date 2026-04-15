@@ -312,7 +312,7 @@ async function processCommandQueue() {
 		  }
 		  packed.testPairs = testPairs;
 		  if (self.cdPortHandler) {
-		    self.abId = await
+		    const abIdObj = await
 		    self.cdPortHandler.callRpc({command: 'link_shapes',
 					       shapes: packed,
 					       name: self.myBodyName},
@@ -321,6 +321,7 @@ async function processCommandQueue() {
 					       packed.saLayer.buffer,
 					       packed.vertices.buffer],
 					     500); // 0.5秒のタイムアウトを設定
+		    self.abId = abIdObj.abId; // cd-workerから返されたabIdを保存
 		    calcObj.abId = self.abId; // calcObjからもアクセスできるようにする
 		  } else {
 		    throw new Error('cdPortHandler is not ready to send link shapes data');
@@ -342,7 +343,7 @@ async function processCommandQueue() {
 	    }
 	    // なにかの加減でオブジェクト生成に失敗した場合はここでエラーがthrownされる
 	    calcObj.state = st.generatorReady;
-	    self.postMessage({type: 'generator_ready'});
+	    self.postMessage({type: 'generator_ready', ab_id: calcObj.abId});
 	  })
 	  .catch(error => {
 	    ucl_logger?.warn('Err fetching or parsing URDF.JSON file:',
@@ -355,6 +356,38 @@ async function processCommandQueue() {
 	ucl_logger?.debug('Initialization complete, finalPromise resolved');
       }
 	break;
+
+      case 'ignore_pairs':
+	ucl_logger?.debug('$$$$$$$$ Received ignore pairs command:', data.ignorePairs);
+	ucl_logger?.debug('$$$$$$$$ cdPortHandler ready:', !!self.cdPortHandler, 'abId:', self.abId);
+	ucl_logger?.debug('$$$$$$$$ Current state:', calcObj.state);
+	if (calcObj.state === st.slrmReady || calcObj.state === st.generatorReady) {
+	// ik-workerは、my_abId:my_link, abId:link型(整数4個)をパックしたtyped arrayにしてcd-workerにRPCする(command新設)
+	// ここで受け取っている event.data.ignorePairsは
+	// ignorePairs: [{ myLink: pair.myLink,	otherAbId: otherEl.abId, otherLink: pair.otherLink},...]
+	// el.workerRef?.current?.postMessage({ type: 'ignore_pairs', ignorePairs }) :
+	if (self.cdPortHandler && typeof self.abId === 'number') {
+	  const ignorePairs = new Int32Array(data.ignorePairs.length * 4);
+	  data.ignorePairs.forEach((pair, index) => {
+	    ignorePairs[index*4] = self.abId; // my_abId
+	    ignorePairs[index*4 + 1] = pair.myLink;
+	    ignorePairs[index*4 + 2] = pair.otherAbId; // other_abId
+	    ignorePairs[index*4 + 3] = pair.otherLink;
+	  } );
+	  try {
+	    ucl_logger?.debug('$$$$$$$$$$ Sending ignore pairs to cd-worker:', data.ignorePairs);
+	    await self.cdPortHandler.callRpc({command: 'ignore_pairs', ignorePairs},
+					     [ignorePairs.buffer], 500);
+	    ucl_logger?.debug('Sent ignore pairs to cd-worker:', data.ignorePairs);
+	  } catch (error) {
+	    ucl_logger?.error('Failed to send ignore pairs to cd-worker:', error);
+	  }
+	} else {
+	  ucl_logger?.error('cdPortHandler is not ready to send ignore pairs data');
+	}
+      }
+	break;
+
       case 'set_initial_joints':
 	if (calcObj.state === st.generatorReady ||
 	    calcObj.state === st.slrmReady) {
