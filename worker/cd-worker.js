@@ -232,7 +232,7 @@ function attachOnMessageHandler(port) {
 	  event.data.ignorePairs.length % 4 !== 0) {
 	ucl_logger?.error('Invalid ignorePairs length:', event.data.ignorePairs.length);
       } else {
-	ucl_logger?.warn('$$$$$$$$$$ Received ignore_pairs command with', event.data.ignorePairs.length / 4, 'pairs. Processing...'); // 4で割ってペア数を表示
+	ucl_logger?.debug('$$$$$$$$$$ Received ignore_pairs command with', event.data.ignorePairs.length / 4, 'pairs. Processing...'); // 4で割ってペア数を表示
 	const cdModule = self.CdModule;
 	const exceptionPairsPtr = cdModule._exception_pairs_alloc(event.data.ignorePairs.length);
 	// 本当はWASMでvector resizeが成功しているかどうかを返してもらうべきだが、
@@ -243,7 +243,7 @@ function attachOnMessageHandler(port) {
 	exceptionPairsArray.set(event.data.ignorePairs);
 	cdModule._add_exception_pairs(); // 登録完了したらexceptionPairsPtrのvectorはshrink_to_fitされる
 	// 登録後のignorePairsは、WASM側で管理されるため、ここでは特に何もしない
-	ucl_logger?.warn('$$$$$ Ignore pairs registered in WASM module. Reconstructing test pairs...');
+	ucl_logger?.debug('$$$$$ Ignore pairs registered in WASM module. Reconstructing test pairs...');
 	cdModule._reconstruct_test_pairs();
 	result = event.data.ignorePairs.length / 4; // 登録したペアの数を返す
       }

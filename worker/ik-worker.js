@@ -444,12 +444,19 @@ async function processCommandQueue() {
 	    if (ptr && size) {
 	      const wTbaseArray = new Float64Array(SlrmModule.HEAPF64.buffer, ptr, size);
 	      wTbaseArray.set(data.baseCoord);
+	      ucl_logger?.debug('XXXXX Base coordinate set to CmdVelGen buffer: ' +
+				data.baseCoord.slice(12,15).map(v => v.toFixed(3)).join(', ')+
+				' ...');
 	      cmdVelGen.notifyWTBaseBufferUpdated();
 	      global_base_coord.set(data.baseCoord);
 	      global_base_coord[15] = -1; // 使用済、未定義にする
 	      ucl_logger?.debug('Base coordinate updated: ' +
 				data.baseCoord.slice(0,4).map(v => v.toFixed(3)).join(', ')+
 				' ...');
+	      // リンクのワールド座標値が変化するため,calcObjのsendLinkCoordsToCd()を呼んでおく
+	      if (calcObj.state === st.slrmReady && calcObj.subState !== sst.dormant) {
+		calcObj.sendLinkCoordsToCd(calcObj.joints);
+	      }
 	    } else {
 	      ucl_logger?.error('Failed to get wTbase buffer pointer or size');
 	    }
