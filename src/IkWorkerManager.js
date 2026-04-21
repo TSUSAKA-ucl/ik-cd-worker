@@ -105,7 +105,8 @@ export default async function IkWorkerManager({robotName,
 					    port: channel.port1,
 					    from: robotName},
 					  [channel.port1]);
-	  globalThis.__customLogger?.log('Message channel created and port1 sent to cd-worker');
+	  globalThis.__customLogger?.log('Message channel for',robotName,
+					 'created and port1 sent to cd-worker');
 	  workerRef.current.postMessage({ type: 'cd_port',
 					  port: channel.port2,
 					  from: robotName},

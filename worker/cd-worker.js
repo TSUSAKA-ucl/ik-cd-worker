@@ -11,6 +11,9 @@ if (typeof console.log === 'function')  ucl_logger.log = console.log;
 const CdModuleFactory = await import('/wasm/cd_module.js');
 
 const CdModule = await CdModuleFactory.default();
+// cd-worker.jsは、link_shapes_interface.cppを使っていて、
+// CdModuleFactory.default()の時点でWASM globalなgjkCdが一つ生成
+// それを使っていく。js側から明示的なgjkCdは不要
 ucl_logger?.debug('CdModule loaded successfully', CdModule);
 if (!CdModule) {
   ucl_logger?.error('Failed to load CdModule');
@@ -23,7 +26,6 @@ CdModule.setJsLogLevel(3); // 3: info level, 4: debug level
 // selfでない個々のchannelからは名前は付いてこない
 // remove_portしてもabIdの使い回しはしない
 self.alive = true;
-self.gjkCd = null; // 廃止された new CdModule.cd_constructor();
 self.CdModule = CdModule;
 self.channel = [];
 
@@ -60,7 +62,6 @@ function main() {
   // ************************************************
   // collision detectionのループを開始する
   const cdModule = self.CdModule;
-  const gjkCd = cdModule;
   self.postMessage({ type: 'cd_worker_ready' });
   ucl_logger?.debug('cd_worker_ready message posted');
   // test_collision_pairs2にかかる時間の平均とばらつきと最大最小を計る
@@ -84,12 +85,12 @@ function main() {
     // rbCoordsUpdatedを最小限に抑えられる
     newestSequence.length = 0;
     newestPoses.length = 0;
-    if (gjkCd._all_link_pose_defined() !== 0) {
+    if (cdModule._all_link_pose_defined() !== 0) {
       // WASM側で衝突判定を行う。結果はWASM内のバッファに書き込まれる
       if (loopCount === 0) ucl_logger?.debug('Running collision detection... ..................');
       // test_collision_pairs2にかかる時間の平均とばらつきと最大最小を計る
       const startTime = performance.now();
-      gjkCd._test_collision_pairs2();
+      cdModule._test_collision_pairs2();
       const endTime = performance.now();
       if (loopCount === 0) ucl_logger?.debug('Collision detection completed');
       const elapsedTime = endTime - startTime;
@@ -99,16 +100,16 @@ function main() {
       minTime = Math.min(minTime, elapsedTime);
       countForTiming++;
       // 一旦、colliding abIds bufferは中止。全abIdを走査することとする
-      // const collidingAbIdsPtr = gjkCd.getCollidingAbIdsBufferPtr();
-      // const collidingAbIdsSize = gjkCd.getCollidingAbIdsBufferSize();
+      // const collidingAbIdsPtr = cdModule.getCollidingAbIdsBufferPtr();
+      // const collidingAbIdsSize = cdModule.getCollidingAbIdsBufferSize();
       // const collidingAbIds = new Int32Array(self.CdModule.HEAP32.buffer,
       // 					  collidingAbIdsPtr,
       // 					  collidingAbIdsSize);
       // // abはik-workerと一対一に対応していて、個々に固有のseq番号がある
       // // collidingAbIdsの中身はabIDとsequenceが交互にならんでいる
 
-      const collisionPairsPtr = gjkCd._get_collision_pairs_buffer_ptr_();
-      const collisionPairsSize = gjkCd._get_collision_pairs_buffer_size_();
+      const collisionPairsPtr = cdModule._get_collision_pairs_buffer_ptr_();
+      const collisionPairsSize = cdModule._get_collision_pairs_buffer_size_();
       const collisionPairs = new Int32Array(self.CdModule.HEAP32.buffer,
 					    collisionPairsPtr,
 					    collisionPairsSize);
@@ -200,8 +201,9 @@ function attachOnMessageHandler(port) {
       // self.channel[abId] = port;
       ucl_logger?.debug('Received link_shapes command. abLayer:', event.data.shapes.abLayer);
       ucl_logger?.debug('Received link_shapes command. uuid:', event.data.uuid);
+      ucl_logger?.log('Registered abId',abId,'for',event.data.name);
       registerLinkShapes(abId, event.data.shapes);
-      ucl_logger?.log('Registered link shapes for abId', abId);
+      ucl_logger?.log('Finished registeration of link shapes for abId', abId);
       port.postMessage({ command: 'link_shapes_response',
 			 uuid: event.data.uuid,
 			 abId: abId});
@@ -244,7 +246,7 @@ function attachOnMessageHandler(port) {
 	cdModule._add_exception_pairs(); // 登録完了したらexceptionPairsPtrのvectorはshrink_to_fitされる
 	// 登録後のignorePairsは、WASM側で管理されるため、ここでは特に何もしない
 	ucl_logger?.debug('$$$$$ Ignore pairs registered in WASM module. Reconstructing test pairs...');
-	cdModule._reconstruct_test_pairs();
+	cdModule._reconstruct_test_pairs(0);
 	result = event.data.ignorePairs.length / 4; // 登録したペアの数を返す
       }
       port.postMessage({ command: 'ignore_pairs_response',
@@ -323,12 +325,13 @@ function registerLinkShapes(abId, packedData) {
     // ucl_logger?.debug('Registering test pair', pair, 'for abId', abId);
     cdModule._add_ab_test_pair(abId, pair[0],pair[1]);
   }
-  cdModule._reconstruct_test_pairs();
+  ucl_logger?.debug("call cdModule._reconstruct_test_pairs(1);");
+  cdModule._reconstruct_test_pairs(1);
 }
 
 // WASMにrbの座標が更新されたことを通知する関数。articulated body idと
-// rbの座標の配列を受け取る。座標は、ab登録時にはbase座標系を原点とした値で渡し、
-// WASM側でabのbase座標系を考慮してワールド座標系に変換する。
+// rbの座標の配列を受け取る。座標は、ik-workerのcalcFk0でworld座標系ベース
+// の座標値を計算済。cd-workerはab毎のbase座標系の概念は無い
 function rbCoordsUpdated(abId, sequence, poses) {
   const gjkCd = self.CdModule;
   // WASMのTypedArrayに座標をコピーして、更新を通知する
