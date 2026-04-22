@@ -346,6 +346,7 @@ function rbCoordsUpdated(abId, sequence, poses) {
   }
   const destArray = new Float64Array(self.CdModule.HEAPF64.buffer,
 				     destPtr, srcSize);
+  // console.warn('type of poses is', poses.constructor.name, 'length:', poses.length);
   destArray.set(poses);
   gjkCd._notify_link_coords_updated2(abId, sequence);
 }

@@ -34,16 +34,19 @@ set_target_properties(cd_module PROPERTIES
 )
 
 
+
 target_compile_options(cd_module PRIVATE
     -O3
     -msimd128
+    # -fsanitize=address
     -DNDEBUG
 )
 
 target_link_options(cd_module PRIVATE
   "-O3"
   "-msimd128"
-  "-sINITIAL_MEMORY=1GB"
+  # "-fsanitize=address"
+  # "-sINITIAL_MEMORY=1GB"
   "-sMODULARIZE=1"
   "-sEXPORT_ES6=1"
   "-sEXPORTED_RUNTIME_METHODS=['HEAPF64','HEAP32']"
