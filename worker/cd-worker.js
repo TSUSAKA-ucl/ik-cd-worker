@@ -116,9 +116,14 @@ function main() {
       // 干渉している全rbIdのペアの配列。中身はrbId(通し番号)が交互に並んでいる
       // デバッグ用にcollisionPairsの内容をログに出す。
       // ucl_logger?.debug('Collision pairs:', collisionPairs);
-      if (collisionPairsSize > 0) {
+      if (loopCount === 0 && collisionPairsSize > 0) {
 	// const collisionPairsArray = Array.from(collisionPairs.slice(0, collisionPairsSize));
-	// ucl_logger?.debug('Collision pairs array:', collisionPairsArray);
+	const collisionPairsArray = Array.from(collisionPairs).reduce((acc, val, index) => {
+	  if (index%2 === 0) acc.push([val]);
+	  else acc[acc.length-1].push(val);
+	  return acc;
+	} , []);
+	ucl_logger?.log('Collision pairs array:', collisionPairsArray);
       }
       // ab毎に必要なrbIdを抽出して、abIdとsequenceとともにik-workerに送る
       // for (let i = 0; i < collidingAbIdsSize; i += 2) {
@@ -134,6 +139,18 @@ function main() {
 	    abCollisionRbIds.push(rbId1 - rbIdOffsetMin);
 	  }
 	}
+	// abStopDependencies走査もここで行う。abStopDependenciesはabIdをキーにして、そこから衝突判定により動作を止めるべきabIdの配列を引けるようになっている。abCollisionRbIdsに、abStopDependenciesで指定されたab内のrbId(負の数か範囲外の数)も追加する
+	const stopAbIds = abStopDependencies[abId] || [];
+	stopAbIds.forEach(stopAbId => {
+	  const stopRbIdOffsetMin = cdModule._query_rbId_offset(stopAbId);
+	  const stopRbIdOffsetMax = cdModule._query_rbId_end(stopAbId);
+	  for (let j = 0; j < collisionPairsSize; j++) {
+	    const rbId1 = collisionPairs[j];
+	    if (stopRbIdOffsetMin <= rbId1 && rbId1 < stopRbIdOffsetMax) {
+	      abCollisionRbIds.push(rbId1 - rbIdOffsetMin);
+	    }
+	  }
+	});
 	if (loopCount === 0 && abCollisionRbIds.length > 0) {
 	  ucl_logger?.debug(`Posting collision pairs for abId ${abId}:`, abCollisionRbIds);
 	}
@@ -152,7 +169,7 @@ function main() {
       const stdDev = Math.sqrt(variance);
       ucl_logger?.debug(`Collision detection timing: avg=${avgTime.toFixed(2)}ms, stdDev=${stdDev.toFixed(2)}ms, min=${minTime.toFixed(2)}ms, max=${maxTime.toFixed(2)}ms`);
     }
-    if (++loopCount >= 500) loopCount = 0;
+    if (++loopCount >= 2000) loopCount = 0;
     if (self.alive) setTimeout(loop, 4);
   };
   loop();
@@ -188,6 +205,7 @@ function cleanupAb(abId, memory=true) {
   }
 }
 
+const abStopDependencies = [];
 // onmessageハンドラーをportに取り付ける関数。newestSequenceとnewestPosesは、座標更新のコマンドを受け取ったときに、abIdごとに最新のseq番号と座標を保存しておくためのオブジェクト。
 const newestSequence = [];
 const newestPoses = [];
@@ -252,6 +270,41 @@ function attachOnMessageHandler(port) {
       port.postMessage({ command: 'ignore_pairs_response',
 			 uuid: event.data.uuid,
 			 result: result});
+    }
+      break;
+    case 'stop_dependency': {
+      // abIdをキーにして、そこから衝突判定により動作を止めるべきabId
+      // の配列を引けるようにする。これで、あるabが衝突したときに、そ
+      // のabだけでなく、関連するabもまとめて動作を止めることができる
+      // ようになる。event.data.stopAbIdは、動作を止めるべきabId一個。
+      // abStopDependenciesは、abIdをキーにして、そこから衝突判定によ
+      // り動作を止めるべきabIdの配列を引けるようになっている。
+      // これはcallRpcなのでuuidを付けて返す
+      const abId = portToId(port);
+      ucl_logger?.debug(`Received stop_dependencies command for abId ${abId} with stopAbId:`, event.data.stopAbId);
+      if (!abStopDependencies[abId]) { abStopDependencies[abId] = []; }
+      // abStopDependenciesにevent.data.stopAbIdの値が無ければ追記する。重複は避ける。
+      if (!abStopDependencies[abId].includes(event.data.stopAbId)) {
+	abStopDependencies[abId].push(event.data.stopAbId);
+      }
+      // さらにevent.data.stopAbIdの依存先があればその先も再帰的にす
+      // べてabStopDependencies[abId]に追加する。これで、依存の連鎖も
+      // 考慮できるようになる。
+      const reconstructDependencies = (stopAbId) => {
+	if (abStopDependencies[stopAbId]) {
+	  abStopDependencies[stopAbId].forEach(dependentAbId => {
+	    if (!abStopDependencies[abId].includes(dependentAbId)) {
+	      abStopDependencies[abId].push(dependentAbId);
+	      reconstructDependencies(dependentAbId);
+	    }
+	  } );
+	}
+      };
+      reconstructDependencies(event.data.stopAbId);
+      ucl_logger?.log(`## Updated stop dependencies for abId ${abId}:`, abStopDependencies[abId]);
+      port.postMessage({ command: 'stop_dependencies_response',
+			 uuid: event.data.uuid,
+			 result: 'ok'});
     }
       break;
     case 'query_ab_id': {

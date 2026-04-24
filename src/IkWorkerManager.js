@@ -29,31 +29,31 @@ export default async function IkWorkerManager({robotName,
     // sceneElが存在してcd workerが存在しない場合は無条件でcd workerを作る。
     // ただし、ik workerからlink_shapes commandが来なければ何も計算しない
     // sceneElが無ければcd workerもchannelも作れないが、ik workerは作れる
-    // sceneEl.systems.cdWorkerが無ければ、cd workerは生成済でないため、cd workerを作る。
-    // cd workerを作成したらsceneEl.systemsにセットして、cd_worker_readyメッセージを待つ
+    // sceneEl.cdWorkerが無ければ、cd workerは生成済でないため、cd workerを作る。
+    // cd workerを作成したらsceneElにセットして、cd_worker_readyメッセージを待つ
     // cd_worker_readyメッセージ受信がresolveしたら message channel作成とik worker作成に進む
     //
-    // cdWorkerが生成される => sceneEl.systems.cdWorker.currentにWorkerオブジェクトが入る    
+    // cdWorkerが生成される => sceneEl.cdWorker.currentにWorkerオブジェクトが入る    
     // 生成したタスクはPromiseでラップして、readyになるのを待つ
-    // promiseは他のタスクと共有するためsceneEl.systems.cdWorker.promiseに入れる
+    // promiseは他のタスクと共有するためsceneEl.cdWorker.promiseに入れる
     // 待っている間に、他のタスクはcdWorkerを生成せず同じpromiseを待つようにする
    if (entity?.sceneEl) {
-      if (!entity.sceneEl.systems?.cdWorker) {
+      if (!entity.sceneEl?.cdWorker) {
 	try {
 	  // entity.sceneEl.cdWorker = [1,2,3];
 	  // console.warn('$$$$$$$$$$ sceneEl: ',entity.sceneEl);
 	  // console.warn('$$$$$$$$$$ typeof sceneEl: ', typeof entity.sceneEl);
 	  // console.warn('$$$$$$$$$$ sceneEl.cdWorker: ', entity.sceneEl.cdWorker);
 	  // console.dir(entity.sceneEl);
-	  // console.warn('$$$$$$$$$$ sceneEl.systems: ',
-	  // 	       entity.sceneEl?.systems['cd-worker-system']);
-	  globalThis.__customLogger?.debug('Creating a new cd-worke: sceneEl.systems', entity.sceneEl.systems);
-	  entity.sceneEl.systems.cdWorker = { current: null, ready: false, el: entity.sceneEl };
-	  entity.sceneEl.systems.cdWorker.promise = new Promise((resolve, reject) => {
+	  // console.warn('$$$$$$$$$$ sceneEl: ',
+	  // 	       entity.sceneEl['cd-worker-system']);
+	  globalThis.__customLogger?.debug('Creating a new cd-worke: sceneEl', entity.sceneEl);
+	  entity.sceneEl.cdWorker = { current: null, ready: false, el: entity.sceneEl };
+	  entity.sceneEl.cdWorker.promise = new Promise((resolve, reject) => {
 	    globalThis.__customLogger?.debug('Creating cd-worker...');
 	    const cdWorker = new Worker('/cd-worker.js', { type: 'module', name: 'cd-worker'});
-	    entity.sceneEl.systems.cdWorker.current = cdWorker;
-	    cdWorkerRef = entity.sceneEl.systems.cdWorker;
+	    entity.sceneEl.cdWorker.current = cdWorker;
+	    cdWorkerRef = entity.sceneEl.cdWorker;
 	    globalThis.__customLogger?.debug('cd-worker created, waiting for ready message...');
 	    cdWorker.onmessage = (event) => {
 	      if (event.data.type === 'cd_worker_ready') {
@@ -63,27 +63,27 @@ export default async function IkWorkerManager({robotName,
 		resolve();
 	      } else if (event.data.type === 'wasm_error') {
 		globalThis.__customLogger?.error('cd-worker failed to initialize WASM module:', event.data.error);
-		entity.sceneEl.systems.cdWorker = null;
+		entity.sceneEl.cdWorker = null;
 		reject(new Error('cd-worker failed to initialize WASM module: ' + event.data.error));
 	      }
 	    };
 	    cdWorker.onerror = (error) => {
 	      globalThis.__customLogger?.error('Failed to load or execute cd-worker:', error);
-	      entity.sceneEl.systems.cdWorker = null;
+	      entity.sceneEl.cdWorker = null;
 	      reject(error);
 	    }
 	  });
 	  // await createCdWorker();
-	  await entity.sceneEl.systems.cdWorker.promise;
+	  await entity.sceneEl.cdWorker.promise;
 	} catch (error) {
-	  // console.warn('$$$$$$$$$$',entity?.sceneEl?.systems);
+	  // console.warn('$$$$$$$$$$',entity?.sceneEl);
 	  globalThis.__customLogger?.error('Error during cd-worker creation:', error);
 	}
       } else {
-	globalThis.__customLogger?.debug('typeof cd-worker object: ', typeof entity.sceneEl.systems.cdWorker.current);
-	if (entity.sceneEl.systems.cdWorker.current instanceof Worker) {
-	  cdWorkerRef = entity.sceneEl.systems.cdWorker;
-	  await entity.sceneEl.systems.cdWorker.promise;
+	globalThis.__customLogger?.debug('typeof cd-worker object: ', typeof entity.sceneEl.cdWorker.current);
+	if (entity.sceneEl.cdWorker.current instanceof Worker) {
+	  cdWorkerRef = entity.sceneEl.cdWorker;
+	  await entity.sceneEl.cdWorker.promise;
 	  globalThis.__customLogger?.debug('cd-worker already exists');
 	}
       }
@@ -141,8 +141,9 @@ export default async function IkWorkerManager({robotName,
 	// console.warn('$*$*$*$ receive generator_ready. entity:',entity);
 	// console.warn('$*$*$*$ receive generator_ready. event.data:', event.data);
 	if (entity) {
-	  if (event.data.ab_id) entity.abId = event.data.ab_id;
+	  if (typeof event.data.ab_id === 'number') entity.abId = event.data.ab_id;
 	  entity.ikWorkerReady = true;
+	  console.log('## Worker is ready and abId is set:', entity.abId);
 	  entity.emit('ik-worker-ready', null, false);
 	}
 	workerRef.current

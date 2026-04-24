@@ -5,7 +5,10 @@ const ucl_logger = globalThis.__customLogger;
 // ********************************
 // デバッグコンソール出力
 // if (typeof console.debug === 'function')  ucl_logger.debug = console.debug;
-if (typeof console.log === 'function')  ucl_logger.log = console.log;
+if (typeof console.log === 'function')  {
+  ucl_logger.log = console.log;
+  ucl_logger.info = console.log;
+}
 if (typeof console.warn === 'function')  ucl_logger.warn = console.warn;
 if (typeof console.error === 'function')  ucl_logger.error = console.error;
 
@@ -48,6 +51,7 @@ SlrmModule.setJsLogLevel(2); // 3: info level, 4: debug level
 const moveCommandQueue = [];
 // const calcObj = new IkCdCalc(SlrmModule, CdModule, moveCommandQueue);
 const calcObj = new IkCdCalc(SlrmModule, null, moveCommandQueue);
+calcObj.abId = -1;
 //
 globalThis.base_coord = new Float64Array(16); // 基底座標を保存する配列
 const global_base_coord = globalThis.base_coord; // グローバルにアクセスできるようにする
@@ -58,6 +62,7 @@ for (let i = 0; i < 15; i++) {
 global_base_coord[15] = -1; // 最初は未定義
 
 
+let workerInitialized = false;
 const commandQueue = [];
 // ******** worker message handler ********
 // 現在、onmessageハンドラーで直接処理していものを、commandQueueを
@@ -74,8 +79,13 @@ const commandQueue = [];
 ucl_logger?.debug('now setting onmessage')
 self.onmessage = function(event) {
   const data = event.data;
+  if (data.type === 'stop_dependency') {
+    ucl_logger?.log('## Received stop_dependency command for abId:', data.stopAbId,
+		    'current abId:', self.abId);
+  }
   switch (data.type) {
   case 'shutdown': // workerを終了する
+    workerInitialized = false; // 新たなコマンドの処理を止めるためにフラグを下ろす
     if (bridge.socket) {
       bridge.socket.close();
       bridge.socket = null;
@@ -89,6 +99,11 @@ self.onmessage = function(event) {
     // if (self.cdWorkerPort) {
     //   self.cdWorkerPort.postMessage({command: 'remove_ab'});
     // }
+    // self.cdPortHandler.callRpcでcd-workerにremove_abコマンドを送る
+    if (self.cdWorkerPort) {
+      self.cdWorkerPort.close();
+      self.cdWorkerPort = null;
+    }
     self.postMessage({type: 'shutdown_complete'});
     shutdownFlag = true; // workerを終了するフラグを立てる
     break;
@@ -135,8 +150,17 @@ self.onmessage = function(event) {
   }
     break;
   default:
+    if (data.type === 'stop_dependency') {
+      ucl_logger?.log('## RECEIVED stop_dependency command for abId:', data.stopAbId,
+		      'current abId:', self.abId);
+    }
     // enqueue other commands
-    commandQueue.push(data);
+    // ただしdata.type==='init'のときはqueueの先頭に積む。
+    if (data.type === 'init') {
+      commandQueue.unshift(data); // initは優先して処理するためqueueの先頭に積む
+    } else {
+      commandQueue.push(data);
+    }
     break;
   }
 };
@@ -145,11 +169,20 @@ async function processCommandQueue() {
   let cmdVelGen = calcObj.cmdVelGen; // CmdVelGeneratorのインスタンスを保持する変数
   const { makeDoubleVector } = createHelpers(SlrmModule);
   while (commandQueue.length > 0) {
-    const data = commandQueue.shift();
-    if (data.type !== 'init' &&
-	calcObj.state !== st.generatorReady &&
-	calcObj.state !== st.slrmReady) { // initが完了していない状態では、iniot以外のコマンドは処理しない
+    // const data = commandQueue.shift();
+    // dequeueするまえにinitかどうかをチェックしてinitならば処理する。
+    // initでなければworkerInitializedがtrueになるまで保留
+    // commandQueue.length > 0なのでcommandQueue[0]を見る
+    if (commandQueue[0].type !== 'init' && !workerInitialized) {
+      // const data = commandQueue.shift(); // NG
+      // enqueue側でinitは先頭に積むようにしているので他のコマンドは残しておく
+      break; // initでないコマンドが来ていてworkerが初期化されていないときは、commandQueueの先頭を処理せずに待つ
     } else {
+      const data = commandQueue.shift();
+      if (data.type === 'stop_dependency') {
+	ucl_logger?.log('## RECEIVED stop_dependency COMMAND for abId:', data.stopAbId,
+			'current abId:', self.abId);
+      }
       // if (data.type !== 'destination') {
       // 	ucl_logger?.debug('Processing command from queue:', data);
       // }
@@ -239,6 +272,7 @@ async function processCommandQueue() {
 	    // commandQueueのdataのparametersに干渉形状の定義があれば
 	    // fetchしてcdWorkerに送る
 	    if (data.linkShapes && self.cdPortHandler) {
+	      ucl_logger?.log('## fetching link shapes from: ', data.linkShapes);
 	      const
 	      linkShapesPromise = fetch(data.linkShapes)
 		.then(response => response.json())
@@ -343,6 +377,7 @@ async function processCommandQueue() {
 	    }
 	    // なにかの加減でオブジェクト生成に失敗した場合はここでエラーがthrownされる
 	    calcObj.state = st.generatorReady;
+	    ucl_logger?.log('## sending generator_ready message with abId:', calcObj.abId);
 	    self.postMessage({type: 'generator_ready', ab_id: calcObj.abId});
 	  })
 	  .catch(error => {
@@ -354,6 +389,7 @@ async function processCommandQueue() {
 	  });
 	await finalPromise; // ここで初期化処理全体が完了するまで待つ
 	ucl_logger?.debug('Initialization complete, finalPromise resolved');
+	workerInitialized = true; // 初期化が完了したことを示すフラグを立てる
       }
 	break;
 
@@ -429,6 +465,25 @@ async function processCommandQueue() {
 	    ucl_logger?.log('Worker state changed to slrmReady');
 	  }
 	} break;
+      case 'stop_dependency':
+	// 引数 data.stopAbId このabIdの衝突が検出されたら本abも停止(rewindQueue)する
+	// cdWorkerに'stop_dependency'でcallRpcすればcdWorkerが自動的に処理し、stopAbId衝突の場合も
+	// 本ab(ik-worker)に衝突情報を送ってくる
+	// ucl_logger?
+	  console.log('## stop_dependency command Received for abId:', data.stopAbId,
+			'current abId:', self.abId);
+	if (self.cdPortHandler && typeof self.abId === 'number') {
+	  try {
+	    await self.cdPortHandler.callRpc({command: 'stop_dependency', stopAbId: data.stopAbId},
+					     null, 500);
+	    ucl_logger?.info('Sent stop_dependency command to cd-worker for abId:', data.stopAbId);
+	  } catch (error) {
+	    ucl_logger?.error('Failed to send stop_dependency command to cd-worker:', error);
+	  }
+	} else {
+	  ucl_logger?.error('cdPortHandler is not ready to send stop_dependency command');
+	}
+	break;
       case 'set_base_coord':
 	// まず引数のdata.baseCoordが正しいか確認する。サイズ16でbaseCoord[15]>0ならば有効とみなす。
 	if (!data.baseCoord || data.baseCoord.length !== 16 || data.baseCoord[15] <= 0) {
@@ -649,9 +704,14 @@ async function processCommandQueue() {
 	if (calcObj.state === st.generatorReady ||
 	    calcObj.state === st.slrmReady) {
 	  if (data.ignoreCollisions !== undefined) {
-	    calcObj.ignoreCollision = data.ignoreCollisions;
-	    ucl_logger?.log('Ignore collisions set to: ',
-			    calcObj.ignoreCollision);
+	    // calcObj.ignoreCollision = data.ignoreCollisions;
+	    if (calcObj.rewindQueue) {
+	      calcObj.rewindQueue.ignore = data.ignoreCollisions;
+	      ucl_logger?.log('Ignore collisions set to: ',
+			      calcObj.rewindQueue.ignore);
+	    } else {
+	      ucl_logger?.error('set_ignore_collisions: rewindQueue is not ready to set ignoreCollisions');
+	    }	      
 	  }
 	}
 	break;

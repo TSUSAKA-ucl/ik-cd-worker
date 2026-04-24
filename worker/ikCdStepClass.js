@@ -143,9 +143,9 @@ class IkCdCalc {
   // ******** collision detection function ********
   // cd_workerに干渉チェック対象の剛体の位置姿勢を送る
   sendLinkCoordsToCd(joints) {
-    if (!this.ignoreCollision &&
-	this.cdPortHandler &&
-	this.abId !== undefined) {
+    // ignoreCollisionの処理はik-worker.jsでthis.rewindQueue.ignoreを
+    // 直接変えることでコントロールできる
+    if (this.cdPortHandler && this.abId !== undefined) {
       const ptr = this.cmdVelGen.getJointValuesBufferPtr();
       const size = this.cmdVelGen.getJointValuesBufferSize();
       const jointsWasm = new Float64Array(this.slrmModule.HEAPF64.buffer,

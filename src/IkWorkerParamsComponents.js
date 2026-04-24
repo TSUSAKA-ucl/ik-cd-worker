@@ -19,10 +19,12 @@ function registerBooleanMessageComponent(componentName,
       default: false,
     },
     init: function () {
+      globalThis.__customLogger.log('called init function of IkWorkerParams:',componentName);
       this.setFunction = () => {
+	globalThis.__customLogger.log('called set function of IkWorkerParams:',componentName);
 	const propertyName = kebabToCamelCase(componentName);
 	if (this.el.workerRef?.current) {
-	  globalThis.__customLogger.debug(`Posting message to worker: ${messageType} with value ${this.data}`);
+	  globalThis.__customLogger.log(`Posting message to worker: ${messageType} with value ${this.data}`);
 	  this.el.workerRef.current.postMessage({
 	    type: messageType,
 	    [propertyName]: this.data,
@@ -33,6 +35,7 @@ function registerBooleanMessageComponent(componentName,
       };
     },
     update: function () {
+      globalThis.__customLogger.log('called update function of IkWorkerParams:',componentName);
       if (this.el.ikWorkerReady) {
 	this.setFunction();
       }

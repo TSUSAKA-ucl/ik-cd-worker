@@ -67,7 +67,8 @@ class RewindQueue {
       const sequence = rest.sequence;
       const data = rest.data;
       this.#cleanUpQueue(sequence, !(data.length > 0));
-      this.newestResult = data;
+      if (this.ignore) this.newestResult = [];
+      else this.newestResult = data;
       this.newestSeq = sequence;
     };
   }
