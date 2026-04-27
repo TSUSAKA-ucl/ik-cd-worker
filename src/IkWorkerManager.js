@@ -38,6 +38,9 @@ export default async function IkWorkerManager({robotName,
     // promiseは他のタスクと共有するためsceneEl.cdWorker.promiseに入れる
     // 待っている間に、他のタスクはcdWorkerを生成せず同じpromiseを待つようにする
    if (entity?.sceneEl) {
+     if (entity.sceneEl.suppressCdWorker) {
+       globalThis.__customLogger?.log('suppressCdWorker is true, skipping cd-worker creation.');
+     } else {
       if (!entity.sceneEl?.cdWorker) {
 	try {
 	  // entity.sceneEl.cdWorker = [1,2,3];
@@ -87,12 +90,16 @@ export default async function IkWorkerManager({robotName,
 	  globalThis.__customLogger?.debug('cd-worker already exists');
 	}
       }
+     }
     }
     // sceneElが無い場合はcd workerもchannelも作れないが、ik workerは作れる
     // この時点で、cdWorkerが存在していれば readyであるはず。
 
     workerRef.current = new Worker('/ik-worker.js', { type: 'module',
 						      name: robotName});
+    if (entity) {
+      entity.ikWorkerReady = false;
+    }
     globalThis.__customLogger?.debug("workerRef.current: ", workerRef.current);
     let isWaitingEndState = true;
     workerRef.current.onmessage = (event) => {
@@ -145,6 +152,9 @@ export default async function IkWorkerManager({robotName,
 	  entity.ikWorkerReady = true;
 	  console.log('## Worker is ready and abId is set:', entity.abId);
 	  entity.emit('ik-worker-ready', null, false);
+	} else {
+	  globalThis.__customLogger?.warn('Received generator_ready message ',
+					  'but entity is not defined.');
 	}
 	workerRef.current
 	  .postMessage({ type: 'set_exact_solution',

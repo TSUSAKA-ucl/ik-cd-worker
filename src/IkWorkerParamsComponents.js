@@ -51,3 +51,13 @@ registerBooleanMessageComponent('set-exact-solution');
 registerBooleanMessageComponent('set-ignore-joint-limits');
 registerBooleanMessageComponent('set-ignore-collisions');
 registerBooleanMessageComponent('set-joint-limit-keep-moving');
+
+AFRAME.registerComponent('suppress-cd-worker', {
+  sceneOnly: true,
+  schema: {
+    default: true,
+  },
+  update: function () {
+    this.el.suppressCdWorker = this.data;
+  }
+});

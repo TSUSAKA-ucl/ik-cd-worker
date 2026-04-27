@@ -132,6 +132,9 @@ class IkCdCalc {
     // joint値になっているがmessageが来ない場合は更新されない
     // その場合はnewestResultも[]になったまま変わらない
   }
+  resetRewindQueue() {
+    this.rewindQueue.forceReset(null);
+  }
 
   prepareGjkCd(port) {
     ucl_logger?.debug('Preparing GJK Collision Detection with port:', port);
@@ -181,7 +184,7 @@ class IkCdCalc {
 	  jointVel = this.jMoveVelocityLimit;
 	}
 	this.velocities[i] = jointVel;
-	this.prevJoints[i] = this.joints[i];
+	// this.prevJoints[i] = this.joints[i];
 	this.joints[i] = this.joints[i] + this.velocities[i] * timeStep;
 	const diff = this.controllerJointVec[i] - this.joints[i];
 	if (diff < -1e-2 || diff > 1e-2) {
@@ -274,10 +277,14 @@ class IkCdCalc {
       } else if (this.subState === sst.jMoving) {
 	if (this.doJointMove(timeStep) === true) {
 	  this.sendLinkCoordsToCd(this.joints);
-	  // 大抵1回前のcd結果が入っている
 	  if (this.rewindQueue.newestResult.length) {
 	    // detect collision(s)
-	    this.joints.set(this.rewindQueue.getRewindElement());
+	    if (this.dontStepBack) {
+	      this.joints.set(this.prevJoints);
+	    } else {
+	      // 大抵1回前のcd結果が入っている
+	      this.joints.set(this.rewindQueue.getRewindElement());
+	    }
 	    this.subState = sst.converged; // 衝突したら動作終了
 	  }
 	  // endLinkPoseVec = [];
@@ -339,7 +346,11 @@ class IkCdCalc {
 	}
 	this.sendLinkCoordsToCd(this.joints);
 	if (this.rewindQueue.newestResult.length) {
-	  this.joints.set(this.rewindQueue.getRewindElement());
+	  if (this.dontStepBack) {
+	    this.joints.set(this.prevJoints)
+	  } else {
+	    this.joints.set(this.rewindQueue.getRewindElement());
+	  }
 	}
 	break;
       case this.SLRM_STAT.END:

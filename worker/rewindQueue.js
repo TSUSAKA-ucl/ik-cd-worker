@@ -86,13 +86,13 @@ class RewindQueue {
     }
     return index;
   }
-  #currentSize () {
-    if (this.#rear >= this.#front) {
-      return (this.#rear - this.#front) / this.#elementSize;
-    } else {
-      return (this.#queueMaxSize * this.#elementSize - this.#front + this.#rear) / this.#elementSize;
-    }
-  }
+  // #currentSize () {
+  //   if (this.#rear >= this.#front) {
+  //     return (this.#rear - this.#front) / this.#elementSize;
+  //   } else {
+  //     return (this.#queueMaxSize * this.#elementSize - this.#front + this.#rear) / this.#elementSize;
+  //   }
+  // }
   // element(だけseqを付けてrewind queueに積み
   enqueue(element) { // Float64Array (elementSize)
     this.#seq++;
@@ -161,6 +161,20 @@ class RewindQueue {
   }
   getRewindElement () {
     return this.#queueBody.subarray(this.#front+1, this.#front+this.#elementSize);
+  }
+  // elementがあればqueueを全部消してelementを一つだけqueueに入れる
+  // なければforce resetでqueueの最後を残して、それより前は全部消す
+  forceReset(element) {
+    if (element) {
+      this.#seq++;
+      this.#queueBody[0] = this.#seq;
+      this.#queueBody.set(element, 1);
+      this.#front = 0;
+      this.#rear = this.#stepIndex(this.#front);
+    } else {
+      // this.#front = this.#stepBackIndex(this.#rear);
+      this.#rear = this.#stepIndex(this.#front);
+    }
   }
 }
 

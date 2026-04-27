@@ -123,7 +123,7 @@ function main() {
 	  else acc[acc.length-1].push(val);
 	  return acc;
 	} , []);
-	ucl_logger?.log('Collision pairs array:', collisionPairsArray);
+	// ucl_logger?.debug('Collision pairs array:', collisionPairsArray);
       }
       // ab毎に必要なrbIdを抽出して、abIdとsequenceとともにik-workerに送る
       // for (let i = 0; i < collidingAbIdsSize; i += 2) {
