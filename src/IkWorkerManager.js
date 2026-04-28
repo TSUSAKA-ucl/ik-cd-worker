@@ -63,6 +63,7 @@ export default async function IkWorkerManager({robotName,
 		globalThis.__customLogger?.debug('cd-worker is ready');
 		cdWorkerRef.ready = true;
 		cdWorkerRef.el = entity.sceneEl; // readyイベントの発火元エンティティを保存
+		cdWorkerRef.el.emit('cd-worker-ready', null, false);
 		resolve();
 	      } else if (event.data.type === 'wasm_error') {
 		globalThis.__customLogger?.error('cd-worker failed to initialize WASM module:', event.data.error);

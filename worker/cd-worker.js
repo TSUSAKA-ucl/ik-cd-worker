@@ -28,7 +28,7 @@ CdModule.setJsLogLevel(3); // 3: info level, 4: debug level
 self.alive = true;
 self.CdModule = CdModule;
 self.channel = [];
-
+self.logTiming = false; // logTimingがtrueのとき、計算時間計測の結果をucl_logger.debugに出す。falseのときは出さない
 
 function main() {
   ucl_logger?.debug('cd-worker started, waiting for messages...');
@@ -44,6 +44,16 @@ function main() {
     case 'remove_port':
       // port関係を消し、WASMへのメモリー開放も促す
       cleanupAb(data.port);
+      break;
+    case '**log_timing': {
+      if (data.timing) {
+	self.logTiming = data.timing;
+	ucl_logger?.debug('Timing log level set to', self.logTiming);
+      } else {
+	self.logTiming = false;
+	ucl_logger?.debug('Timing log level disabled');
+      }
+    }
       break;
     case 'shutdown':
       self.channel.forEach(port => {
@@ -123,7 +133,7 @@ function main() {
 	  else acc[acc.length-1].push(val);
 	  return acc;
 	} , []);
-	// ucl_logger?.debug('Collision pairs array:', collisionPairsArray);
+	ucl_logger?.debug('Collision pairs array:', collisionPairsArray);
       }
       // ab毎に必要なrbIdを抽出して、abIdとsequenceとともにik-workerに送る
       // for (let i = 0; i < collidingAbIdsSize; i += 2) {
@@ -164,10 +174,16 @@ function main() {
       }
     }
     if (loopCount === 0 && countForTiming > 0) {
-      const avgTime = totalTime / countForTiming;
-      const variance = (totalTimeSquared / countForTiming) - (avgTime * avgTime);
-      const stdDev = Math.sqrt(variance);
-      ucl_logger?.debug(`Collision detection timing: avg=${avgTime.toFixed(2)}ms, stdDev=${stdDev.toFixed(2)}ms, min=${minTime.toFixed(2)}ms, max=${maxTime.toFixed(2)}ms`);
+      if (self.logTiming) {
+	const avgTime = totalTime / countForTiming;
+	const variance = (totalTimeSquared / countForTiming) - (avgTime * avgTime);
+	const stdDev = Math.sqrt(variance);
+	ucl_logger?.log('Collision detection timing: ',
+			`avg=${avgTime.toFixed(2)}ms, `,
+			`stdDev=${stdDev.toFixed(2)}ms, `,
+			`min=${minTime.toFixed(2)}ms, `,
+			`max=${maxTime.toFixed(2)}ms`);
+      }
     }
     if (++loopCount >= 2000) loopCount = 0;
     if (self.alive) setTimeout(loop, 4);
@@ -393,6 +409,7 @@ function rbCoordsUpdated(abId, sequence, poses) {
   const destPtr = gjkCd._get_wTlinks_buffer_ptr2(abId);
   if (gjkCd._get_wTlinks_buffer_size2(abId) !== srcSize) {
     ucl_logger?.error('GJK CD buffer size mismatch: expected', srcSize,
+		      'for abId', abId,
 		      'but got', gjkCd._get_wTlinks_buffer_size2(abId));
     
     return;

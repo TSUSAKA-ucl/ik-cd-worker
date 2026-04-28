@@ -61,3 +61,35 @@ AFRAME.registerComponent('suppress-cd-worker', {
     this.el.suppressCdWorker = this.data;
   }
 });
+
+// sceneEl.cdWorkerに付いているcd-worker関係のプロパティーを使って
+// cd-workerがreadyになるのを(eventで)待って'**log_timing'をpostMessageする
+AFRAME.registerComponent('cd-worker-log-timing', {
+  schema: {
+    timing: { type: 'boolean', default: true },
+  },
+  update: function () {
+    const sceneEl = this.el.sceneEl;
+    const postLogTimingMessage = () => {
+      if (typeof sceneEl.cdWorker?.current?.postMessage === 'function') {
+	globalThis.__customLogger
+	  .log('Posting log_timing message to cd-worker with ',
+	       `value ${this.data.timing}`);
+	sceneEl.cdWorker.current.postMessage({type: '**log_timing',
+						 timing: this.data.timing});
+      } else {
+	globalThis.__customLogger
+	  .warn('cdWorker is not ready to receive messages');
+	globalThis.__customLogger
+	  .warn('cdWorker:', sceneEl.cdWorker);
+      }
+    };
+    if (sceneEl.cdWorker?.ready) {
+      postLogTimingMessage();
+    } else {
+      this.el.sceneEl.addEventListener('cd-worker-ready',
+				       postLogTimingMessage,
+				       { once: true });
+    }
+  }
+});
