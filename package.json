@@ -1,6 +1,6 @@
 {
   "name": "@ucl-nuee/ik-cd-worker",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "publishConfig": {
     "access": "public"
   },
@@ -9,7 +9,8 @@
     "public/wasm/slrm_module.js",
     "public/wasm/cd_module.wasm",
     "public/wasm/slrm_module.wasm",
-    "public/ik_cd_worker.js",
+    "public/ik-worker.js",
+    "public/cd-worker.js",
     "scripts/copy-wasm.js",
     "src/IkWorkerManager.js",
     "src/customLogger.js",
