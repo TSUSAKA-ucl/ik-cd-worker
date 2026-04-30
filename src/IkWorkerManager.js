@@ -149,10 +149,15 @@ export default async function IkWorkerManager({robotName,
 	// console.warn('$*$*$*$ receive generator_ready. entity:',entity);
 	// console.warn('$*$*$*$ receive generator_ready. event.data:', event.data);
 	if (entity) {
-	  if (typeof event.data.ab_id === 'number') entity.abId = event.data.ab_id;
+	  if (typeof event.data.ab_id === 'number' &&
+	      event.data.ab_id >= 0) entity.abId = event.data.ab_id;
 	  entity.ikWorkerReady = true;
 	  console.log('## Worker is ready and abId is set:', entity.abId);
 	  entity.emit('ik-worker-ready', null, false);
+	  if (typeof event.data.ab_id === 'number' &&
+	      event.data.ab_id >= 0) {
+	    entity.emit('ab-id-ready', null, false);
+	  }
 	} else {
 	  globalThis.__customLogger?.warn('Received generator_ready message ',
 					  'but entity is not defined.');

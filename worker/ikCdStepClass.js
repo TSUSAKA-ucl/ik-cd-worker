@@ -148,7 +148,7 @@ class IkCdCalc {
   sendLinkCoordsToCd(joints) {
     // ignoreCollisionの処理はik-worker.jsでthis.rewindQueue.ignoreを
     // 直接変えることでコントロールできる
-    if (this.cdPortHandler && this.abId !== undefined) {
+    if (this.cdPortHandler && typeof this.abIdRegistered === 'number') {
       const ptr = this.cmdVelGen.getJointValuesBufferPtr();
       const size = this.cmdVelGen.getJointValuesBufferSize();
       const jointsWasm = new Float64Array(this.slrmModule.HEAPF64.buffer,
@@ -162,7 +162,7 @@ class IkCdCalc {
       const copiedLinkCoord = linkCoord.slice();
       this.rewindQueue.enqueue(joints);
       this.cdPortHandler.post({ command: 'rb_poses',
-				abId: this.abId,
+				abId: this.abIdRegistered,
 				sequence: this.sequence,
 				poses: copiedLinkCoord
 			      }, [copiedLinkCoord.buffer]);

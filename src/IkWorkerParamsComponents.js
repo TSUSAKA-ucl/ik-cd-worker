@@ -93,3 +93,34 @@ AFRAME.registerComponent('cd-worker-log-timing', {
     }
   }
 });
+
+AFRAME.registerComponent('cd-worker-log-collision', {
+  schema: {
+    logCollision: { type: 'boolean', default: true },
+  },
+  update: function () {
+    const sceneEl = this.el.sceneEl;
+    const postLogCollisionMessage = () => {
+      if (typeof sceneEl.cdWorker?.current?.postMessage === 'function') {
+	globalThis.__customLogger
+	  .log('Posting log_collision message to cd-worker with ',
+	       `value ${this.data.logCollision}`);
+	sceneEl.cdWorker.current.postMessage({type: '**log_collision',
+					      logCollision: this.data.logCollision});
+      } else {
+	globalThis.__customLogger
+	  .warn('cdWorker is not ready to receive messages');
+	globalThis.__customLogger
+	  .warn('cdWorker:', sceneEl.cdWorker);
+      }
+    }
+    if (sceneEl.cdWorker?.ready) {
+      postLogCollisionMessage();
+    } else {
+      this.el.sceneEl.addEventListener('cd-worker-ready',
+				       postLogCollisionMessage,
+				       { once: true });
+    }
+  }
+});
+

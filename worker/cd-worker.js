@@ -27,8 +27,10 @@ CdModule.setJsLogLevel(3); // 3: info level, 4: debug level
 // remove_portしてもabIdの使い回しはしない
 self.alive = true;
 self.CdModule = CdModule;
-self.channel = [];
+self.channel = []; // abIdをindexとしてportを保存する配列
+self.registered = []; // link_shapeを受け取り登録済のabIdのリスト。登録されていないabIdはfalse
 self.logTiming = false; // logTimingがtrueのとき、計算時間計測の結果をucl_logger.debugに出す。falseのときは出さない
+self.logCollisionPairs = false; // logCollisionPairsがtrueのとき、衝突ペアの内容をucl_logger.debugに出す。falseのときは出さない
 
 function main() {
   ucl_logger?.debug('cd-worker started, waiting for messages...');
@@ -52,6 +54,16 @@ function main() {
       } else {
 	self.logTiming = false;
 	ucl_logger?.debug('Timing log level disabled');
+      }
+    }
+      break;
+    case '**log_collision': {
+      if (data.logCollision) {
+	self.logCollisionPairs = data.logCollision;
+	ucl_logger?.debug('Collision pairs log level set to', self.logCollisionPairs);
+      } else {
+	self.logCollisionPairs = false;
+	ucl_logger?.debug('Collision pairs log level disabled');
       }
     }
       break;
@@ -84,7 +96,8 @@ function main() {
   let loopCount = 0;
   const loop = () => {
     newestSequence.forEach((seq, abId) => {
-      if (typeof seq === 'number' &&
+      if (typeof abId === 'number' &&
+	  typeof seq === 'number' &&
 	  typeof newestPoses[abId] !== 'undefined') {
 	rbCoordsUpdated(abId, seq, newestPoses[abId]);
       }
@@ -161,8 +174,9 @@ function main() {
 	    }
 	  }
 	});
-	if (loopCount === 0 && abCollisionRbIds.length > 0) {
-	  ucl_logger?.debug(`Posting collision pairs for abId ${abId}:`, abCollisionRbIds);
+	if (loopCount === 0 && abCollisionRbIds.length > 0 &&
+	    self.logCollisionPairs) {
+	  ucl_logger?.log(`Posting collision pairs for abId ${abId}:`, abCollisionRbIds);
 	}
 	self.channel[abId].postMessage({ command: 'collision_pairs',
 					 sequence: cdModule._query_ab_sequence(abId),
@@ -191,18 +205,38 @@ function main() {
   loop();
 }
 
+// link_shapesコマンドを受け取ったportのみregisteredになる
 function portToId(port, add=false) {
   const abId = self.channel.indexOf(port);
-  if (abId === -1) {
+  if (abId >= 0) {
+    if (add) {
+      if (self.channel[abId] === port) {
+	self.registered[abId] = true;
+	ucl_logger?.log('channel registered:', self.channel);
+	return abId;
+      } else {
+	ucl_logger?.error('Port already exists at index but does not match the given port. This should not happen. abId:', abId);
+	return null;
+      }
+    } else {
+      if (self.registered[abId]===true) {
+	return abId;
+      } else {
+	ucl_logger?.warn('Port found in channel but has no shapes yet. abId:', abId);
+	return null;
+      }
+    }
+  } else {
     if (add) {
       self.channel.push(port);
-      ucl_logger?.log('channel table updated:', self.channel);
-      return self.channel.length - 1;
+      const newAbId = self.channel.length - 1;
+      self.registered[newAbId] = true;
+      ucl_logger?.log('channel added and registered:', self.channel);
+      return newAbId;
     } else {
       return null;
     }
   }
-  return abId;
 }
 
 function cleanupAb(abId, memory=true) {
@@ -288,7 +322,7 @@ function attachOnMessageHandler(port) {
 			 result: result});
     }
       break;
-    case 'stop_dependency': {
+    case 'stop_dependency':
       // abIdをキーにして、そこから衝突判定により動作を止めるべきabId
       // の配列を引けるようにする。これで、あるabが衝突したときに、そ
       // のabだけでなく、関連するabもまとめて動作を止めることができる
@@ -297,31 +331,32 @@ function attachOnMessageHandler(port) {
       // り動作を止めるべきabIdの配列を引けるようになっている。
       // これはcallRpcなのでuuidを付けて返す
       const abId = portToId(port);
-      ucl_logger?.debug(`Received stop_dependencies command for abId ${abId} with stopAbId:`, event.data.stopAbId);
-      if (!abStopDependencies[abId]) { abStopDependencies[abId] = []; }
-      // abStopDependenciesにevent.data.stopAbIdの値が無ければ追記する。重複は避ける。
-      if (!abStopDependencies[abId].includes(event.data.stopAbId)) {
-	abStopDependencies[abId].push(event.data.stopAbId);
-      }
-      // さらにevent.data.stopAbIdの依存先があればその先も再帰的にす
-      // べてabStopDependencies[abId]に追加する。これで、依存の連鎖も
-      // 考慮できるようになる。
-      const reconstructDependencies = (stopAbId) => {
-	if (abStopDependencies[stopAbId]) {
-	  abStopDependencies[stopAbId].forEach(dependentAbId => {
-	    if (!abStopDependencies[abId].includes(dependentAbId)) {
-	      abStopDependencies[abId].push(dependentAbId);
-	      reconstructDependencies(dependentAbId);
-	    }
-	  } );
+      if (typeof abId === 'number') {
+	ucl_logger?.debug(`Received stop_dependencies command for abId ${abId} with stopAbId:`, event.data.stopAbId);
+	if (!abStopDependencies[abId]) { abStopDependencies[abId] = []; }
+	// abStopDependenciesにevent.data.stopAbIdの値が無ければ追記する。重複は避ける。
+	if (!abStopDependencies[abId].includes(event.data.stopAbId)) {
+	  abStopDependencies[abId].push(event.data.stopAbId);
 	}
-      };
-      reconstructDependencies(event.data.stopAbId);
-      ucl_logger?.log(`## Updated stop dependencies for abId ${abId}:`, abStopDependencies[abId]);
-      port.postMessage({ command: 'stop_dependencies_response',
-			 uuid: event.data.uuid,
-			 result: 'ok'});
-    }
+	// さらにevent.data.stopAbIdの依存先があればその先も再帰的にす
+	// べてabStopDependencies[abId]に追加する。これで、依存の連鎖も
+	// 考慮できるようになる。
+	const reconstructDependencies = (stopAbId) => {
+	  if (abStopDependencies[stopAbId]) {
+	    abStopDependencies[stopAbId].forEach(dependentAbId => {
+	      if (!abStopDependencies[abId].includes(dependentAbId)) {
+		abStopDependencies[abId].push(dependentAbId);
+		reconstructDependencies(dependentAbId);
+	      }
+	    } );
+	  }
+	};
+	reconstructDependencies(event.data.stopAbId);
+	ucl_logger?.log(`## Updated stop dependencies for abId ${abId}:`, abStopDependencies[abId]);
+	port.postMessage({ command: 'stop_dependencies_response',
+			   uuid: event.data.uuid,
+			   result: 'ok'});
+      }
       break;
     case 'query_ab_id': {
       // これはcallRpcなのでuuidを付けて返す
@@ -336,7 +371,7 @@ function attachOnMessageHandler(port) {
       // 		   'sequence:', event.data.sequence, 'poses:', event.data.poses);
       // これはcallRpcではない。最新のseq番号と座標を保存しておくだけ
       const abId = portToId(port);
-      if (typeof abId === 'number') { // abIdは必ず数値だが、念のため
+      if (typeof abId === 'number') { // 定義済のabIdは必ず数値だが、念のため
 	newestSequence[abId] = event.data.sequence;
 	newestPoses[abId] = event.data.poses;
       }

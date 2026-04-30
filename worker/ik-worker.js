@@ -51,7 +51,9 @@ SlrmModule.setJsLogLevel(2); // 3: info level, 4: debug level
 const moveCommandQueue = [];
 // const calcObj = new IkCdCalc(SlrmModule, CdModule, moveCommandQueue);
 const calcObj = new IkCdCalc(SlrmModule, null, moveCommandQueue);
-calcObj.abId = -1;
+// abIdはcd-worker用message channelがcd-workerに渡されると生成されるが、
+// calcObj.abIdRegisteredは、shapesがregisterされた物だけabId数値がセットされる
+calcObj.abIdRegistered = null;
 calcObj.dontStepBack = false;
 //
 globalThis.base_coord = new Float64Array(16); // 基底座標を保存する配列
@@ -366,7 +368,7 @@ async function processCommandQueue() {
 					       packed.vertices.buffer],
 					     500); // 0.5秒のタイムアウトを設定
 		    self.abId = abIdObj.abId; // cd-workerから返されたabIdを保存
-		    calcObj.abId = self.abId; // calcObjからもアクセスできるようにする
+		    calcObj.abIdRegistered = self.abId; // calcObjからもアクセスできるようにする
 		  } else {
 		    throw new Error('cdPortHandler is not ready to send link shapes data');
 		  }
@@ -387,8 +389,8 @@ async function processCommandQueue() {
 	    }
 	    // なにかの加減でオブジェクト生成に失敗した場合はここでエラーがthrownされる
 	    calcObj.state = st.generatorReady;
-	    ucl_logger?.log('## sending generator_ready message with abId:', calcObj.abId);
-	    self.postMessage({type: 'generator_ready', ab_id: calcObj.abId});
+	    ucl_logger?.log('## sending generator_ready message with abId:', calcObj.abIdRegistered);
+	    self.postMessage({type: 'generator_ready', ab_id: calcObj.abIdRegistered});
 	  })
 	  .catch(error => {
 	    ucl_logger?.warn('Err fetching or parsing URDF.JSON file:',
