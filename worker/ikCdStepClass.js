@@ -9,6 +9,9 @@ globalThis.__customLogger = customLogger;
 const ucl_logger = globalThis.__customLogger;
 // const ucl_logger = customLogger;
 
+import { RewindQueue} from './rewindQueue.js';
+
+
 function copyArrayToWasmVec(jsArray, emVec) { // , wasmModule) {
   for (let i = 0; i < emVec.size(); ++i) {
     emVec.set(i, jsArray[i]);
@@ -30,6 +33,8 @@ class IkCdCalc {
     this.state =  st.initializing; // worker state
     this.subState =  sst.dormant;  // slrm & joint mover/rewinder state
     this.timeInterval = 4; // time step for simulation in milliseconds
+    this.postInterval = 33; // interval for posting messages to main thread in milliseconds
+    this.postTimer = 0; // timer for posting messages to main thread
     this.logInterval = 0n/BigInt(this.timeInterval); // log interval in BigInt
     // ******** flags ********
     this.noDestination = true; // 目標位置姿勢が存在しないかどうか
@@ -39,13 +44,14 @@ class IkCdCalc {
     this.ignoreJointLimits = false; // ジョイントリミットを無視するかどうか
     // ******** wasm objects (set by the onmessage handler) ********
     this.cmdVelGen = null;
-    this.gjkCd = null;
+    this.cdPort = null;
+    this.sequence = 0;
     // ******** control parameters ********
     this.counter = 0n;
     this.jMoveGain = 10.0; // joint move command gain
     this.jMoveVelocityLimit = Math.PI/3.0; // joint move command velocity limit rad/s
     // ******** result variables ********
-    this.result_collision = [];	// 次回のdetectCollision呼び出しまでの間結果を保存するため
+    // this.result_collision = [];	// 次回のdetectCollision呼び出しまでの間結果を保存するため
   }
   prepareVectors(numJoints, destinationSize) {
     // ******** destination variables ********
@@ -117,56 +123,53 @@ class IkCdCalc {
     if (this.emptyEndLinkPose) this.emptyEndLinkPose.delete();
     if (this.limitFlagsWasm) this.limitFlagsWasm.delete();
   }
-  prepareGjkCd(wasmObj, wasm=this.cdModule) {
-    this.gjkCd = wasmObj;
-    this.cdModule = wasm;
-    this.jointPosition = new wasm.DoubleVector();
-    this.jointPosition.resize(this.joints.length,0);
-    // this.jointVecと同じだがWASMモジュールが異なる
+
+  prepareRewindQueue() {
+    ucl_logger?.debug('Preparing rewind queue for collision detection');
+    this.rewindQueue = new RewindQueue(100, this.joints);
+    this.setNewData = this.rewindQueue.getOnmessageHandler();
+    // rewindQueueはonmessage handlerによって常に先頭は直近のrewind可能な
+    // joint値になっているがmessageが来ない場合は更新されない
+    // その場合はnewestResultも[]になったまま変わらない
+  }
+  resetRewindQueue() {
+    this.rewindQueue.forceReset(null);
+  }
+
+  prepareGjkCd(port) {
+    ucl_logger?.debug('Preparing GJK Collision Detection with port:', port);
+    this.cdPort = port;
   }
   deleteGjkCd() {
-    if (this.jointPosition) this.jointPosition.delete();
   }
+
   // ******** collision detection function ********
-  detectCollisions(joints, result_collision) {
-    if (!this.ignoreCollision && this.gjkCd) {
-      // copyArrayToWasmVec(joints, this.jointPosition); // , this.cdModule);
-      // this.gjkCd.calcFk(this.jointPosition);
+  // cd_workerに干渉チェック対象の剛体の位置姿勢を送る
+  sendLinkCoordsToCd(joints) {
+    // ignoreCollisionの処理はik-worker.jsでthis.rewindQueue.ignoreを
+    // 直接変えることでコントロールできる
+    if (this.cdPortHandler && typeof this.abIdRegistered === 'number') {
       const ptr = this.cmdVelGen.getJointValuesBufferPtr();
       const size = this.cmdVelGen.getJointValuesBufferSize();
-      const jointValuesWasm = new Float64Array(this.slrmModule.HEAPF64.buffer, ptr, size);
-      jointValuesWasm.set(joints);
+      const jointsWasm = new Float64Array(this.slrmModule.HEAPF64.buffer,
+					  ptr, size);
+      jointsWasm.set(joints);
       this.cmdVelGen.calcFk0(); // this calls calcWTLinks() internally
-      // this.cmdVelGen.calcWTLinks();
-      const srcPtr = this.cmdVelGen.getWTLinksBufferPtr(); // std::vector<double> vec.data()
-      const srcSize = this.cmdVelGen.getWTLinksBufferSize(); // std::vector<double> vec.size()
-      const linkCoord = new Float64Array(this.slrmModule.HEAPF64.buffer, srcPtr, srcSize);
-      //
-      // this.gjkCd.notifyLinkCoordsSize(srcSize); // サイズはconstructor引数で固定しているので通知は不要
-      const destPtr = this.gjkCd.getWTLinksBufferPtr(); // std::vector<double> vec.data()
-      if (this.gjkCd.getWTLinksBufferSize() !== srcSize) {
-	ucl_logger?.error('GJK CD buffer size mismatch: expected', srcSize, 'but got', this.gjkCd.getLinkCoordBufferSize());
-	return 0;
-      }
-      const destArray = new Float64Array(this.cdModule.HEAPF64.buffer, destPtr, srcSize);
-      destArray.set(linkCoord);
-      this.gjkCd.notifyLinkCoordsUpdated();
-      const resultPairs = this.gjkCd.testCollisionPairs();
-      // struct UnsignedPair { unsigned int first, second; };
-      // type of resultPairs is std::vector<UnsignedPair>
-      //register_vector<in_house::UnsignedPair>("UnsignedPairVector")
-      result_collision.length = 0; // clear previous results
-      const count = resultPairs.size();
-      for (let i=0; i<count; i++) {
-	const pair = resultPairs.get(i);
-	result_collision.push([pair.first, pair.second]);
-      }
-      resultPairs.delete();
-      return count;
+      const srcPtr = this.cmdVelGen.getWTLinksBufferPtr();
+      const srcSize = this.cmdVelGen.getWTLinksBufferSize();
+      const linkCoord = new Float64Array(this.slrmModule.HEAPF64.buffer,
+					 srcPtr, srcSize);
+      const copiedLinkCoord = linkCoord.slice();
+      this.rewindQueue.enqueue(joints);
+      this.cdPortHandler.post({ command: 'rb_poses',
+				abId: this.abIdRegistered,
+				sequence: this.sequence,
+				poses: copiedLinkCoord
+			      }, [copiedLinkCoord.buffer]);
+      this.sequence++;
     }
-    return 0;
   }
-  //
+
   doJointMove(timeStep) {
     if (this.controllerJointVec &&
 	this.controllerJointVec.length === this.joints.length) {
@@ -181,7 +184,7 @@ class IkCdCalc {
 	  jointVel = this.jMoveVelocityLimit;
 	}
 	this.velocities[i] = jointVel;
-	this.prevJoints[i] = this.joints[i];
+	// this.prevJoints[i] = this.joints[i];
 	this.joints[i] = this.joints[i] + this.velocities[i] * timeStep;
 	const diff = this.controllerJointVec[i] - this.joints[i];
 	if (diff < -1e-2 || diff > 1e-2) {
@@ -240,9 +243,26 @@ class IkCdCalc {
   }
 
   // ***** main function called in each loop *****
-  step(timeStep) {
+  step(timeDelta) { // timeDelta is in milliseconds
+    this.postTimer += timeDelta;
+    const timeStep = timeDelta / 1000; // convert to seconds
     if (this.subState === sst.dormant) return;
     if (!this.slrmModule) return;
+    if (!this.rewindQueue) return; // joint初期値が無くprepareGjkCd()未実行
+    // もしWASMに渡していないbase_coordがあれば渡す。calcFk0()の中でbase_coordを使う
+    const global_base_coord = globalThis.base_coord;
+    if (global_base_coord && global_base_coord.length === 16 &&
+	global_base_coord[15] > 0 &&
+	typeof this.cmdVelGen?.notifyWTBaseBufferUpdated === 'function') {
+      const ptr = this.cmdVelGen.getWTBaseBufferPtr();
+      const size = this.cmdVelGen.getWTBaseBufferSize();
+      if (ptr && size) {
+	const wTbaseArray = new Float64Array(this.slrmModule.HEAPF64.buffer, ptr, size);
+	wTbaseArray.set(global_base_coord);
+	this.cmdVelGen.notifyWTBaseBufferUpdated();
+	global_base_coord[15] = -1; // 使用済、未定義にする
+      }
+    }
     let noDestination = this.noDestination;
     let result_status_value = null;
     let result_other = null;
@@ -256,13 +276,19 @@ class IkCdCalc {
 	this.endLinkPoseVec.set(this.controllerTfVec);
       } else if (this.subState === sst.jMoving) {
 	if (this.doJointMove(timeStep) === true) {
-	  // jMovingの場合、衝突検出を行う
-	  if (this.detectCollisions(this.joints, this.result_collision) !== 0) {
-	    this.joints.set(this.prevJoints); // 衝突したら前の状態に戻す
+	  this.sendLinkCoordsToCd(this.joints);
+	  if (this.rewindQueue.newestResult.length) {
+	    // detect collision(s)
+	    if (this.dontStepBack) {
+	      this.joints.set(this.prevJoints);
+	    } else {
+	      // 大抵1回前のcd結果が入っている
+	      this.joints.set(this.rewindQueue.getRewindElement());
+	    }
 	    this.subState = sst.converged; // 衝突したら動作終了
 	  }
 	  // endLinkPoseVec = [];
-	  noDestination = true; //現在値をゴールにしてcalcVelocityPQを1回実行する
+	  noDestination = true; //現在値をゴールにしてcalcVelocityPQを1回実行
 	}
       }
     } else if (this.subState === sst.rewinding) {
@@ -277,27 +303,25 @@ class IkCdCalc {
     copyArrayToWasmVec(this.endLinkPoseVec, this.endLinkPose); // , this.slrmModule);
     let result = null;
     if (this.jointLimitKeepMoving) {
-      copyArrayToWasmVec(this.limitFlags, this.limitFlagsWasm); // , this.slrmModule);
+      // 現状のリミット状態をセットしてPQ2で計算
+      copyArrayToWasmVec(this.limitFlags, this.limitFlagsWasm);
       result = this.cmdVelGen.calcVelocityPQ2(this.jointVec,
-						    noDestination ?
-						    this.emptyEndLinkPose :
-						    this.endLinkPose,
-						    this.limitFlagsWasm);
+					      noDestination ?
+					      this.emptyEndLinkPose :
+					      this.endLinkPose,
+					      this.limitFlagsWasm);
     } else {
+      // 普通にjoint速度を計算
       result = this.cmdVelGen.calcVelocityPQ(this.jointVec,
-						   noDestination ?
-						   this.emptyEndLinkPose :
-						   this.endLinkPose);
+					     noDestination ?
+					     this.emptyEndLinkPose :
+					     this.endLinkPose);
     }
     this.noDestination = false; // reset
     if (this.subState === sst.moving) {
-      // for (let i=0; i<velocities.length; i++) {
-      // 	velocities[i] = result.joint_velocities.get(i);
-      // 	// endLinkPose.lengthが0の場合、velocitiesは0が約束されている
-      // }
       copyWasmVecToArray(result.joint_velocities, this.velocities);
-      	// , this.slrmModule);
     }
+    // calcVelocityPQまたはcalcVelocityPQ2とペアとなるdelete呼び出し
     result.joint_velocities.delete();
     result_status_value = result.status.value;
     result_other = result.other;
@@ -320,13 +344,19 @@ class IkCdCalc {
 	for (let i=0; i<this.joints.length; i++) {
 	  this.joints[i] = this.joints[i] + this.velocities[i]* timeStep;
 	}
-	if (this.detectCollisions(this.joints, this.result_collision) !== 0) {
-	  this.joints.set(this.prevJoints); // 衝突したら前の状態に戻す
+	this.sendLinkCoordsToCd(this.joints);
+	if (this.rewindQueue.newestResult.length) {
+	  if (this.dontStepBack) {
+	    this.joints.set(this.prevJoints)
+	  } else {
+	    this.joints.set(this.rewindQueue.getRewindElement());
+	  }
 	}
 	break;
       case this.SLRM_STAT.END:
 	// 目標位置に到達した場合の処理
 	// cmdPoseExists = false; 
+	this.sendLinkCoordsToCd(this.joints);
 	this.subState = sst.converged;
 	break;
       case this.SLRM_STAT.SIMGILARITY:
@@ -372,19 +402,24 @@ class IkCdCalc {
 	  }
 	}
       }
-      self.postMessage({type: 'joints', joints: this.joints});
-      self.postMessage({type: 'status', status: this.statusName[result_status_value],
-			exact_solution: this.exactSolution,
-			condition_number: result_other.condition_number,
-			manipulability: result_other.manipulability,
-			sensitivity_scale: result_other.sensitivity_scale,
-			limit_flag: this.limitFlags,
-			collisions: this.result_collision
-		       });
-      self.postMessage({type: 'pose',
-			position: position,
-			quaternion: quaternion,
-		       },[position.buffer, quaternion.buffer]);
+      if (this.postTimer >= this.postInterval) {
+	self.postMessage({type: 'joints', joints: this.joints});
+	self.postMessage({type: 'status', status: this.statusName[result_status_value],
+			  exact_solution: this.exactSolution,
+			  condition_number: result_other.condition_number,
+			  manipulability: result_other.manipulability,
+			  sensitivity_scale: result_other.sensitivity_scale,
+			  limit_flag: this.limitFlags,
+			  collisions: this.rewindQueue.newestResult
+			 });
+	// newestResultは旧result_collisionと仕様が違うが多分reflectCollisionは
+	// 働く
+	self.postMessage({type: 'pose',
+			  position: position,
+			  quaternion: quaternion,
+			 },[position.buffer, quaternion.buffer]);
+	this.postTimer = 0;
+      }
       if (this.subState === sst.converged) {
 	// cmdQueueを確認して新しいコマンドがあれば開始する
 	if (this._cmdQueue.length > 0) {

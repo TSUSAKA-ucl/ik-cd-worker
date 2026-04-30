@@ -19,10 +19,12 @@ function registerBooleanMessageComponent(componentName,
       default: false,
     },
     init: function () {
+      globalThis.__customLogger.log('called init function of IkWorkerParams:',componentName);
       this.setFunction = () => {
+	globalThis.__customLogger.log('called set function of IkWorkerParams:',componentName);
 	const propertyName = kebabToCamelCase(componentName);
 	if (this.el.workerRef?.current) {
-	  globalThis.__customLogger.debug(`Posting message to worker: ${messageType} with value ${this.data}`);
+	  globalThis.__customLogger.log(`Posting message to worker: ${messageType} with value ${this.data}`);
 	  this.el.workerRef.current.postMessage({
 	    type: messageType,
 	    [propertyName]: this.data,
@@ -33,6 +35,7 @@ function registerBooleanMessageComponent(componentName,
       };
     },
     update: function () {
+      globalThis.__customLogger.log('called update function of IkWorkerParams:',componentName);
       if (this.el.ikWorkerReady) {
 	this.setFunction();
       }
@@ -48,3 +51,76 @@ registerBooleanMessageComponent('set-exact-solution');
 registerBooleanMessageComponent('set-ignore-joint-limits');
 registerBooleanMessageComponent('set-ignore-collisions');
 registerBooleanMessageComponent('set-joint-limit-keep-moving');
+
+AFRAME.registerComponent('suppress-cd-worker', {
+  sceneOnly: true,
+  schema: {
+    default: true,
+  },
+  update: function () {
+    this.el.suppressCdWorker = this.data;
+  }
+});
+
+// sceneEl.cdWorkerに付いているcd-worker関係のプロパティーを使って
+// cd-workerがreadyになるのを(eventで)待って'**log_timing'をpostMessageする
+AFRAME.registerComponent('cd-worker-log-timing', {
+  schema: {
+    timing: { type: 'boolean', default: true },
+  },
+  update: function () {
+    const sceneEl = this.el.sceneEl;
+    const postLogTimingMessage = () => {
+      if (typeof sceneEl.cdWorker?.current?.postMessage === 'function') {
+	globalThis.__customLogger
+	  .log('Posting log_timing message to cd-worker with ',
+	       `value ${this.data.timing}`);
+	sceneEl.cdWorker.current.postMessage({type: '**log_timing',
+						 timing: this.data.timing});
+      } else {
+	globalThis.__customLogger
+	  .warn('cdWorker is not ready to receive messages');
+	globalThis.__customLogger
+	  .warn('cdWorker:', sceneEl.cdWorker);
+      }
+    };
+    if (sceneEl.cdWorker?.ready) {
+      postLogTimingMessage();
+    } else {
+      this.el.sceneEl.addEventListener('cd-worker-ready',
+				       postLogTimingMessage,
+				       { once: true });
+    }
+  }
+});
+
+AFRAME.registerComponent('cd-worker-log-collision', {
+  schema: {
+    logCollision: { type: 'boolean', default: true },
+  },
+  update: function () {
+    const sceneEl = this.el.sceneEl;
+    const postLogCollisionMessage = () => {
+      if (typeof sceneEl.cdWorker?.current?.postMessage === 'function') {
+	globalThis.__customLogger
+	  .log('Posting log_collision message to cd-worker with ',
+	       `value ${this.data.logCollision}`);
+	sceneEl.cdWorker.current.postMessage({type: '**log_collision',
+					      logCollision: this.data.logCollision});
+      } else {
+	globalThis.__customLogger
+	  .warn('cdWorker is not ready to receive messages');
+	globalThis.__customLogger
+	  .warn('cdWorker:', sceneEl.cdWorker);
+      }
+    }
+    if (sceneEl.cdWorker?.ready) {
+      postLogCollisionMessage();
+    } else {
+      this.el.sceneEl.addEventListener('cd-worker-ready',
+				       postLogCollisionMessage,
+				       { once: true });
+    }
+  }
+});
+

@@ -10,43 +10,121 @@ globalThis.__customLogger = customLogger;
 // const workerLastJoints = workerData.current.joints;
 // const workerLastStatus = workerData.current.status;
 // const workerLastPose = workerData.current.pose;
-export default function IkWorkerManager({robotName,
-					 entity,
-					 initialJoints,
-					 workerRef,
-					 workerData,
-					 cdWorkerRef={ready: false, el: null},
-					 // currentはworker本体,
-					 // readyはcd_workerの準備完了を表すフラグ,
-					 // readyがtrueになっていればcd workerはonmessageでchannelを受け取れる状態, falseならreadyイベントの発火を待つ
-					 // elはreadyイベントの発火元エンティティ。最低これを有効にしておかないとchannelの受け渡しができない可能性がある
-					 topicBridgeWebSocketURL})
+export default async function IkWorkerManager({robotName,
+					       entity,
+					       initialJoints,
+					       workerRef,
+					       workerData,
+					       cdWorkerRef={ready: false, el: null},
+					       // currentはworker本体,
+					       // readyはcd-workerの準備完了を表すフラグ,
+					       // readyがtrueになっていればcd workerはonmessageでchannelを受け取れる状態, falseならreadyイベントの発火を待つ
+					       // elはreadyイベントの発火元エンティティ。通常はsceneEl。最低これを有効にしておかないとchannelの受け渡しができない可能性がある
+					       topicBridgeWebSocketURL})
 {
   if (workerRef.current !== null) {
     globalThis.__customLogger?.error("Worker already exists.Something is wrong.");
   } else {
-    globalThis.__customLogger?.log('******** Creating a new ik-cd-worker for',robotName,'********');
-    // ik_workerに対応するchannelを作り、渡す。反対側は既に作成済のcd_workerにpostMessageする
-    channel = new MessageChannel();
-    workerRef.current = new Worker('/ik_cd_worker.js', { type: 'module',
-							 name: robotName});
+    globalThis.__customLogger?.log('******** Creating a new ik-worker for',robotName,'********');
+    // sceneElが存在してcd workerが存在しない場合は無条件でcd workerを作る。
+    // ただし、ik workerからlink_shapes commandが来なければ何も計算しない
+    // sceneElが無ければcd workerもchannelも作れないが、ik workerは作れる
+    // sceneEl.cdWorkerが無ければ、cd workerは生成済でないため、cd workerを作る。
+    // cd workerを作成したらsceneElにセットして、cd_worker_readyメッセージを待つ
+    // cd_worker_readyメッセージ受信がresolveしたら message channel作成とik worker作成に進む
+    //
+    // cdWorkerが生成される => sceneEl.cdWorker.currentにWorkerオブジェクトが入る    
+    // 生成したタスクはPromiseでラップして、readyになるのを待つ
+    // promiseは他のタスクと共有するためsceneEl.cdWorker.promiseに入れる
+    // 待っている間に、他のタスクはcdWorkerを生成せず同じpromiseを待つようにする
+   if (entity?.sceneEl) {
+     if (entity.sceneEl.suppressCdWorker) {
+       globalThis.__customLogger?.log('suppressCdWorker is true, skipping cd-worker creation.');
+     } else {
+      if (!entity.sceneEl?.cdWorker) {
+	try {
+	  // entity.sceneEl.cdWorker = [1,2,3];
+	  // console.warn('$$$$$$$$$$ sceneEl: ',entity.sceneEl);
+	  // console.warn('$$$$$$$$$$ typeof sceneEl: ', typeof entity.sceneEl);
+	  // console.warn('$$$$$$$$$$ sceneEl.cdWorker: ', entity.sceneEl.cdWorker);
+	  // console.dir(entity.sceneEl);
+	  // console.warn('$$$$$$$$$$ sceneEl: ',
+	  // 	       entity.sceneEl['cd-worker-system']);
+	  globalThis.__customLogger?.debug('Creating a new cd-worke: sceneEl', entity.sceneEl);
+	  entity.sceneEl.cdWorker = { current: null, ready: false, el: entity.sceneEl };
+	  entity.sceneEl.cdWorker.promise = new Promise((resolve, reject) => {
+	    globalThis.__customLogger?.debug('Creating cd-worker...');
+	    const cdWorker = new Worker('/cd-worker.js', { type: 'module', name: 'cd-worker'});
+	    entity.sceneEl.cdWorker.current = cdWorker;
+	    cdWorkerRef = entity.sceneEl.cdWorker;
+	    globalThis.__customLogger?.debug('cd-worker created, waiting for ready message...');
+	    cdWorker.onmessage = (event) => {
+	      if (event.data.type === 'cd_worker_ready') {
+		globalThis.__customLogger?.debug('cd-worker is ready');
+		cdWorkerRef.ready = true;
+		cdWorkerRef.el = entity.sceneEl; // readyイベントの発火元エンティティを保存
+		cdWorkerRef.el.emit('cd-worker-ready', null, false);
+		resolve();
+	      } else if (event.data.type === 'wasm_error') {
+		globalThis.__customLogger?.error('cd-worker failed to initialize WASM module:', event.data.error);
+		entity.sceneEl.cdWorker = null;
+		reject(new Error('cd-worker failed to initialize WASM module: ' + event.data.error));
+	      }
+	    };
+	    cdWorker.onerror = (error) => {
+	      globalThis.__customLogger?.error('Failed to load or execute cd-worker:', error);
+	      entity.sceneEl.cdWorker = null;
+	      reject(error);
+	    }
+	  });
+	  // await createCdWorker();
+	  await entity.sceneEl.cdWorker.promise;
+	} catch (error) {
+	  // console.warn('$$$$$$$$$$',entity?.sceneEl);
+	  globalThis.__customLogger?.error('Error during cd-worker creation:', error);
+	}
+      } else {
+	globalThis.__customLogger?.debug('typeof cd-worker object: ', typeof entity.sceneEl.cdWorker.current);
+	if (entity.sceneEl.cdWorker.current instanceof Worker) {
+	  cdWorkerRef = entity.sceneEl.cdWorker;
+	  await entity.sceneEl.cdWorker.promise;
+	  globalThis.__customLogger?.debug('cd-worker already exists');
+	}
+      }
+     }
+    }
+    // sceneElが無い場合はcd workerもchannelも作れないが、ik workerは作れる
+    // この時点で、cdWorkerが存在していれば readyであるはず。
+
+    workerRef.current = new Worker('/ik-worker.js', { type: 'module',
+						      name: robotName});
+    if (entity) {
+      entity.ikWorkerReady = false;
+    }
     globalThis.__customLogger?.debug("workerRef.current: ", workerRef.current);
     let isWaitingEndState = true;
     workerRef.current.onmessage = (event) => {
       switch (event.data.type) {
       case 'ready': {
 	const channelTransferFunc = () => {
-	  cdWorkerRef.current.postMessage({ type: 'set_port',
+	  // ik-workerに対応するchannelを作り、渡す。反対側は既に作成済のcd_workerにpostMessageする
+	  const channel = new MessageChannel();
+	  cdWorkerRef.current.postMessage({ type: 'add_port',
 					    port: channel.port1,
 					    from: robotName},
 					  [channel.port1]);
-	  workerRef.current.postMessage({ type: 'set_port',
+	  globalThis.__customLogger?.log('Message channel for',robotName,
+					 'created and port1 sent to cd-worker');
+	  workerRef.current.postMessage({ type: 'cd_port',
 					  port: channel.port2,
-					  to: robotName},
+					  from: robotName},
 					[channel.port2]);
 	};
-	if (cdWorkerRef.ready) { channelTransferFunc();	} else {
-	  cdWorkerRef.el?.addEventListener('cd-worker-ready', channelTransferFunc, { once: true });
+	
+	if (cdWorkerRef.ready) {
+	  channelTransferFunc(); 
+	} else {
+	  globalThis.__customLogger?.warn('cd-worker not ready yet, waiting for ready event...');
 	}
 	const initMsg = { type: 'init',
 			  filename: robotName +'/'+'urdf.json',
@@ -56,14 +134,33 @@ export default function IkWorkerManager({robotName,
 			  bridgeUrl: topicBridgeWebSocketURL
 			};
 	// globalThis.__customLogger?.warn('XXX init msg',initMsg);
-	workerRef.current
-	  .postMessage(initMsg);
+	workerRef.current.postMessage(initMsg);
+	// もし entity.object3Dの値があれば 'type: set_base_coord'をpostMessage
+	if (entity?.object3D) {
+	  // 念の為matrixWorldを更新してから値を取る
+	  entity.object3D.updateMatrixWorld();
+	  const baseCoord = entity.object3D.matrixWorld.elements;
+	  workerRef.current.postMessage({ type: 'set_base_coord',
+					  baseCoord: baseCoord });
+	}
       }
 	break;
       case 'generator_ready':
+	// console.warn('$*$*$*$ receive generator_ready. entity:',entity);
+	// console.warn('$*$*$*$ receive generator_ready. event.data:', event.data);
 	if (entity) {
+	  if (typeof event.data.ab_id === 'number' &&
+	      event.data.ab_id >= 0) entity.abId = event.data.ab_id;
 	  entity.ikWorkerReady = true;
+	  console.log('## Worker is ready and abId is set:', entity.abId);
 	  entity.emit('ik-worker-ready', null, false);
+	  if (typeof event.data.ab_id === 'number' &&
+	      event.data.ab_id >= 0) {
+	    entity.emit('ab-id-ready', null, false);
+	  }
+	} else {
+	  globalThis.__customLogger?.warn('Received generator_ready message ',
+					  'but entity is not defined.');
 	}
 	workerRef.current
 	  .postMessage({ type: 'set_exact_solution',
