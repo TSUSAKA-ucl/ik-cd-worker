@@ -299,6 +299,7 @@ class IkCdCalc {
     } else {
       noDestination = true; // 現在値をゴールにしてcalcVelocityPQを1回実行する
     }
+    if (this.joints.length >= 1) {
     copyArrayToWasmVec(this.joints, this.jointVec); // , this.slrmModule);
     copyArrayToWasmVec(this.endLinkPoseVec, this.endLinkPose); // , this.slrmModule);
     let result = null;
@@ -420,6 +421,7 @@ class IkCdCalc {
 			 },[position.buffer, quaternion.buffer]);
 	this.postTimer = 0;
       }
+    }
       if (this.subState === sst.converged) {
 	// cmdQueueを確認して新しいコマンドがあれば開始する
 	if (this._cmdQueue.length > 0) {
@@ -453,6 +455,10 @@ class IkCdCalc {
 	}
 	this.logPrevJoints.set(this.joints); // ログ出力用の前回ジョイントポジションを更新 配列の複製不要
       }
+    } else {
+      // this.sendLinkCoordsToCd(this.joints);
+      // set_initial_jointがjoints.length==0でschema引数ないときも呼ばれ
+      // そこでsendLinkCoordsToCd()するので、ここでは不要
     }
   }
 }

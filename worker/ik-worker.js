@@ -299,6 +299,8 @@ async function processCommandQueue() {
 					'と一致しません。');
 		    return;
 		  }
+		  ucl_logger?.log('NOW preparing the PACKED SHAPE DATA for',
+				  data.linkShapes);
 		  // linkShapesは、[[[[x,y,z], ...], ...], ...]のような構造で、最初の[]は全体、
 		  // 次の[]は各リンク(rb層でsa層と1対1)、次の[]は各ch層、最後の[]はch層内の頂点(x,y,z)を表す
 		  // rb層、sa層、ch層の3段でch層は3xFloat64の配列(vertices)
@@ -339,6 +341,8 @@ async function processCommandQueue() {
 		    saLayer: chDataArray, // saLayer===chOffsets
 		    vertices: verticesArray, // 頂点データのTypedArray
 		  };
+		  ucl_logger?.log('NOW Packed data was created for',
+				 self.myBodyName);
 
 		  // fetch test pairs from data.testPairs if exists
 		  let testPairs = [];
@@ -348,16 +352,17 @@ async function processCommandQueue() {
 			testPairs.push([i,j]);
 		      }
 		    }
-		    ucl_logger?.debug('using default test pairs: ',
+		    ucl_logger?.log('using default test pairs: ',
 				      testPairs);
 		  } else {
-		    ucl_logger?.debug('fetch test pairs from',
+		    ucl_logger?.log('fetch test pairs from',
 				      data.testPairs);
 		    const response = await fetch(data.testPairs);
 		    testPairs = await response.json();
 		  }
 		  packed.testPairs = testPairs;
 		  if (self.cdPortHandler) {
+		    ucl_logger?.log('NOW calling RPC for', self.myBodyName);
 		    const abIdObj = await
 		    self.cdPortHandler.callRpc({command: 'link_shapes',
 					       shapes: packed,
@@ -475,6 +480,8 @@ async function processCommandQueue() {
 	    calcObj.subState = sst.moving; // 目標位置に移動中
 	    // calcObj.subState = sst.converged;
 	    ucl_logger?.log('Worker state changed to slrmReady');
+	    // cd-workerに初期rb座標系を送る
+	    calcObj.sendLinkCoordsToCd(calcObj.joints);
 	  }
 	} break;
       case 'stop_dependency':

@@ -100,6 +100,13 @@ function main() {
 	  typeof seq === 'number' &&
 	  typeof newestPoses[abId] !== 'undefined') {
 	rbCoordsUpdated(abId, seq, newestPoses[abId]);
+	// if (loopCount===0) {
+	//   CdModule.setJsLogLevel(4);
+	//   // ucl_logger?.log('rbCoordsUpdated for:',abId);
+	//   // ucl_logger?.log(`     newestPoses[${abId}]:`,newestPoses[abId]);
+	// } else {
+	//   CdModule.setJsLogLevel(3);
+	// }
       }
     });
     // rbCoords有無はWASM側で管理する。rbCoordsが有るabはWASM内で正の
@@ -314,6 +321,11 @@ function attachOnMessageHandler(port) {
 	cdModule._add_exception_pairs(); // 登録完了したらexceptionPairsPtrのvectorはshrink_to_fitされる
 	// 登録後のignorePairsは、WASM側で管理されるため、ここでは特に何もしない
 	ucl_logger?.debug('$$$$$ Ignore pairs registered in WASM module. Reconstructing test pairs...');
+	// for (let abId = 0; abId < cdModule._num_ab_objects(); abId++) {
+	//   ucl_logger?.debug('    abId:',abId,
+	// 		    'rbMin:',cdModule._query_rbId_offset(abId),
+	// 		    'rbMax:',cdModule._query_rbId_end(abId));
+	// }
 	cdModule._reconstruct_test_pairs(0);
 	result = event.data.ignorePairs.length / 4; // 登録したペアの数を返す
       }
@@ -322,7 +334,7 @@ function attachOnMessageHandler(port) {
 			 result: result});
     }
       break;
-    case 'stop_dependency':
+    case 'stop_dependency': {
       // abIdをキーにして、そこから衝突判定により動作を止めるべきabId
       // の配列を引けるようにする。これで、あるabが衝突したときに、そ
       // のabだけでなく、関連するabもまとめて動作を止めることができる
@@ -357,6 +369,7 @@ function attachOnMessageHandler(port) {
 			   uuid: event.data.uuid,
 			   result: 'ok'});
       }
+    }
       break;
     case 'query_ab_id': {
       // これはcallRpcなのでuuidを付けて返す
@@ -391,6 +404,7 @@ function registerLinkShapes(abId, packedData) {
   // alloc, freeはextern "C"関数の直接呼び出し
   // length+1の+1は下のlayerの最後のindexを入れる場所。
   const packed = packedData;
+  // ucl_logger?.log('registering packed data:',packed);
   const abPointer = cdModule._ab_alloc(packed.abLayer.length+1);
   const abLayer = new Int32Array(cdModule.HEAP32.buffer,
 				 abPointer,

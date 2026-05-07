@@ -4,3 +4,5 @@ out/
 ik-cd-worker-*.tgz
 ucl-nuee-ik-cd-worker-*.tgz
 !ToDo.md
+*.ORIG
+
