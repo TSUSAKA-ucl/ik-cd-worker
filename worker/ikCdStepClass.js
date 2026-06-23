@@ -299,9 +299,17 @@ class IkCdCalc {
     } else {
       noDestination = true; // 現在値をゴールにしてcalcVelocityPQを1回実行する
     }
-    if (this.joints.length >= 1) {
-    copyArrayToWasmVec(this.joints, this.jointVec); // , this.slrmModule);
-    copyArrayToWasmVec(this.endLinkPoseVec, this.endLinkPose); // , this.slrmModule);
+    if (this.joints.length < 1) {
+      // jointsが初期化されていないかstill objectでジョイントが無い場合は何もしない
+      // set_initial_jointがjoints.length==0でschema引数ないときも呼ばれ
+      // そこでsendLinkCoordsToCd()するので、ここでは不要だが、
+      // still objectがset_base_coordされるケースでは要調査
+
+      // this.sendLinkCoordsToCd(this.joints);
+      return;
+    }
+    copyArrayToWasmVec(this.joints, this.jointVec);
+    copyArrayToWasmVec(this.endLinkPoseVec, this.endLinkPose);
     let result = null;
     if (this.jointLimitKeepMoving) {
       // 現状のリミット状態をセットしてPQ2で計算
@@ -311,6 +319,14 @@ class IkCdCalc {
 					      this.emptyEndLinkPose :
 					      this.endLinkPose,
 					      this.limitFlagsWasm);
+      // if (this.limitFlags.some(flag => flag !== 0)) {
+      // 	// デバッグ用にresule.joint_velocitiesをconsole.logに出す
+      // 	const debugJointVels
+      // 	      = new Float64Array(result.joint_velocities.size());
+      // 	copyWasmVecToArray(result.joint_velocities, debugJointVels);
+      // 	ucl_logger?.warn('Joint velocities from calcVelocityPQ2:',
+      // 			 debugJointVels);
+      // }
     } else {
       // 普通にjoint速度を計算
       result = this.cmdVelGen.calcVelocityPQ(this.jointVec,
@@ -338,6 +354,10 @@ class IkCdCalc {
 	result.status.value !== this.SLRM_STAT.OK) {
       ucl_logger?.warn('CmdVelGenerator returned status other than END or OK during rewinding:', this.statusName[result.status.value]);
     }
+    // if (this.limitFlags.some(flag => flag !== 0)) {
+    //   ucl_logger?.warn('status:', result.status.value,
+    // 		       'Velocities with limits:', this.velocities);
+    // }
     if (this.subState === sst.moving) {
       switch (result.status.value) {
       case this.SLRM_STAT.OK:
@@ -373,7 +393,7 @@ class IkCdCalc {
 	ucl_logger?.error('CmdVelGenerator returned ERROR status');
 	break;
       default:
-	ucl_logger?.error('Unknown status from CmdVelGenerator:', result.status.value);
+	  ucl_logger?.error('Unknown status from CmdVelGenerator:', result.status.value);
 	break;
       }
     }
@@ -422,43 +442,47 @@ class IkCdCalc {
 	this.postTimer = 0;
       }
     }
-      if (this.subState === sst.converged) {
-	// cmdQueueを確認して新しいコマンドがあれば開始する
-	if (this._cmdQueue.length > 0) {
-	  const cmd = this._cmdQueue.shift();
-	  if (cmd.type === 'jMove') {
-	    this.controllerJointVec.set(cmd.joints);
-	    this.subState = sst.jMoving;
-	  }
+    if (this.subState === sst.converged) {
+      // cmdQueueを確認して新しいコマンドがあれば開始する
+      if (this._cmdQueue.length > 0) {
+	const cmd = this._cmdQueue.shift();
+	switch (cmd.type) {
+	case 'jMove':
+	  this.controllerJointVec.set(cmd.joints);
+	  this.subState = sst.jMoving;
+	  break;
+	case 'jMoveVelocity':
+	  this.jMoveVelocityLimit = cmd.velocityLimit;
+	  break;
+	case 'jMoveGain':
+	  this.jMoveGain = cmd.gain;
+	  break;
+	default:
 	}
       }
-      this.counter ++;
-      if (this.logInterval !== 0n && this.counter % this.logInterval === 0n) {
-	if (// this.logPrevJoints !== null && this.joints !== null &&
-	  this.logPrevJoints.length === this.joints.length) {
-	  let max = 0;
-	  for (let i=0; i<this.joints.length; i++) {
-	    const diff = Math.abs(this.logPrevJoints[i] - this.joints[i]);
-	    if (diff > max) { max = diff; }
-	  }
-	  if (max > 0.005) {
-	    // ログ出力
-	    ucl_logger?.log('counter:', this.counter,
-			'status: ', this.statusName[result_status_value] ,
-			' condition:' , result_other.condition_number.toFixed(2) ,
-			' m:' , result_other.manipulability.toFixed(3) ,
-			' k:' , result_other.sensitivity_scale.toFixed(3)
-			+ '\n' +
-			'limit flags: ' + this.limitFlag.join(', '));
-	    //   ucl_logger?.debug('Worker: joints at ' + (counter / (60n*100n / BigInt(this.timeInterval))).toString() + ' minutes: ' + this.joints.map(v => (v*57.2958).toFixed(1)).join(', '));
-	  }
+    }
+    this.counter ++;
+    if (this.logInterval !== 0n && this.counter % this.logInterval === 0n) {
+      if (// this.logPrevJoints !== null && this.joints !== null &&
+	this.logPrevJoints.length === this.joints.length) {
+	let max = 0;
+	for (let i=0; i<this.joints.length; i++) {
+	  const diff = Math.abs(this.logPrevJoints[i] - this.joints[i]);
+	  if (diff > max) { max = diff; }
 	}
-	this.logPrevJoints.set(this.joints); // ログ出力用の前回ジョイントポジションを更新 配列の複製不要
+	if (max > 0.005) {
+	  // ログ出力
+	  ucl_logger?.log('counter:', this.counter,
+			  'status: ', this.statusName[result_status_value] ,
+			  ' condition:' , result_other.condition_number.toFixed(2) ,
+			  ' m:' , result_other.manipulability.toFixed(3) ,
+			  ' k:' , result_other.sensitivity_scale.toFixed(3)
+			  + '\n' +
+			  'limit flags: ' + this.limitFlag.join(', '));
+	  //   ucl_logger?.debug('Worker: joints at ' + (counter / (60n*100n / BigInt(this.timeInterval))).toString() + ' minutes: ' + this.joints.map(v => (v*57.2958).toFixed(1)).join(', '));
+	}
       }
-    } else {
-      // this.sendLinkCoordsToCd(this.joints);
-      // set_initial_jointがjoints.length==0でschema引数ないときも呼ばれ
-      // そこでsendLinkCoordsToCd()するので、ここでは不要
+      this.logPrevJoints.set(this.joints); // ログ出力用の前回ジョイントポジションを更新 配列の複製不要
     }
   }
 }

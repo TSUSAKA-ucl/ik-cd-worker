@@ -570,6 +570,10 @@ async function processCommandQueue() {
 				calcObj.joints.length);
 	    }
 	  } else {
+	    moveCommandQueue.push({ type: 'jMoveVelocity',
+				    velocityLimit: Math.PI });
+	    moveCommandQueue.push({ type: 'jMoveGain',
+				    gain: 100 });
 	    const cmd = { type: 'jMove', joints: data.jointTargets };
 	    moveCommandQueue.push(cmd);
 	  }
