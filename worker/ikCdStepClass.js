@@ -24,9 +24,10 @@ function copyWasmVecToArray(emVec, jsArray) { // , wasmModule) {
 }
 
 class IkCdCalc {
+  #jointLimitKeepMoving;
   constructor (slrmModule, cdModule, cmdQueue) {
     // this.jointLimitKeepMoving = true;
-    this.jointLimitKeepMoving = false;
+    this.#jointLimitKeepMoving = false;
     this.slrmModule = slrmModule; // SLRM WASM module
     this.cdModule = cdModule;     // Collision Detection WASM module
     this._cmdQueue = cmdQueue;	// move command queue
@@ -68,6 +69,7 @@ class IkCdCalc {
     this.jointUpperLimits = new Float64Array(numJoints).fill(1e10);
     this.jointLowerLimits = new Float64Array(numJoints).fill(-1e10);
     this.limitFlags = new Int32Array(numJoints).fill(0);
+    this.jointLimitIgnoreMask = new Int32Array(numJoints).fill(0);
     // ******** args for WASM ********
     // this.jointVec = null; // on demandでmakeDoubleVectorGで生成する
     // this.endLinkPose = null; // on demandでmakeDoubleVectorGで生成する
@@ -85,6 +87,19 @@ class IkCdCalc {
     }
     this.jointLowerLimits.set(lowerLimits);
     this.jointUpperLimits.set(upperLimits);
+  }
+  setJointLimitIgnoreMask(mask) {
+    if ((Array.isArray(mask) || mask instanceof Int32Array)
+      && mask.length !== this.joints.length) {
+        ucl_logger?.error('setJointLimitIgnoreMask: mask length mismatch');
+        return;
+      }
+    this.jointLimitIgnoreMask.set(mask);
+    if (mask?.some(flag => flag !== 0)) {
+      this.#jointLimitKeepMoving = true;
+    } else {
+      this.#jointLimitKeepMoving = false;
+    }
   }
   prepareCmdVelGen(wasmObj, wasm=this.slrmModule) {
     this.cmdVelGen = wasmObj;
@@ -311,9 +326,22 @@ class IkCdCalc {
     copyArrayToWasmVec(this.joints, this.jointVec);
     copyArrayToWasmVec(this.endLinkPoseVec, this.endLinkPose);
     let result = null;
-    if (this.jointLimitKeepMoving) {
+
+    // if (this.#jointLimitKeepMoving) {
+    let someLimitFlag = false;
+    for (let i = 0; i < this.joints.length; i++) {
+      if (this.jointLimitIgnoreMask[i] !== 0) {
+        this.limitFlagsWasm.set(i, this.limitFlags[i]);
+        if (this.limitFlags[i] !== 0) {
+          someLimitFlag = true;
+        }
+      } else {
+        this.limitFlagsWasm.set(i, 0);
+      }
+    }
+    if (this.#jointLimitKeepMoving) {
       // 現状のリミット状態をセットしてPQ2で計算
-      copyArrayToWasmVec(this.limitFlags, this.limitFlagsWasm);
+      // copyArrayToWasmVec(this.limitFlags, this.limitFlagsWasm);
       result = this.cmdVelGen.calcVelocityPQ2(this.jointVec,
 					      noDestination ?
 					      this.emptyEndLinkPose :
@@ -416,8 +444,15 @@ class IkCdCalc {
 	    jointLimitExceed = true;
 	  }
 	}
+        let maskedExceed = false;
+        for (let i=0; i<this.joints.length; i++) {
+          if (this.jointLimitIgnoreMask[i] === 0 && this.limitFlags[i] !== 0) {
+            maskedExceed = true;
+            break;
+          }
+        }
 	if (jointLimitExceed) {
-	  if (!this.jointLimitKeepMoving) {
+	  if (!this.#jointLimitKeepMoving || maskedExceed) {
 	    this.joints.set(this.prevJoints);
 	    this.subState = sst.converged; // ジョイントリミットに達したら動作終了
 	  }

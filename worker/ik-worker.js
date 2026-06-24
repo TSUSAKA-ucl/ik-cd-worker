@@ -415,30 +415,30 @@ async function processCommandQueue() {
 	ucl_logger?.debug('$$$$$$$$ cdPortHandler ready:', !!self.cdPortHandler, 'abId:', self.abId);
 	ucl_logger?.debug('$$$$$$$$ Current state:', calcObj.state);
 	if (calcObj.state === st.slrmReady || calcObj.state === st.generatorReady) {
-	// ik-workerは、my_abId:my_link, abId:link型(整数4個)をパックしたtyped arrayにしてcd-workerにRPCする(command新設)
-	// ここで受け取っている event.data.ignorePairsは
-	// ignorePairs: [{ myLink: pair.myLink,	otherAbId: otherEl.abId, otherLink: pair.otherLink},...]
-	// el.workerRef?.current?.postMessage({ type: 'ignore_pairs', ignorePairs }) :
-	if (self.cdPortHandler && typeof self.abId === 'number') {
-	  const ignorePairs = new Int32Array(data.ignorePairs.length * 4);
-	  data.ignorePairs.forEach((pair, index) => {
-	    ignorePairs[index*4] = self.abId; // my_abId
-	    ignorePairs[index*4 + 1] = pair.myLink;
-	    ignorePairs[index*4 + 2] = pair.otherAbId; // other_abId
-	    ignorePairs[index*4 + 3] = pair.otherLink;
-	  } );
-	  try {
-	    ucl_logger?.debug('$$$$$$$$$$ Sending ignore pairs to cd-worker:', data.ignorePairs);
-	    await self.cdPortHandler?.callRpc({command: 'ignore_pairs', ignorePairs},
-					      [ignorePairs.buffer], 500);
-	    ucl_logger?.debug('Sent ignore pairs to cd-worker:', data.ignorePairs);
-	  } catch (error) {
-	    ucl_logger?.error('Failed to send ignore pairs to cd-worker:', error);
+	  // ik-workerは、my_abId:my_link, abId:link型(整数4個)をパックしたtyped arrayにしてcd-workerにRPCする(command新設)
+	  // ここで受け取っている event.data.ignorePairsは
+	  // ignorePairs: [{ myLink: pair.myLink,	otherAbId: otherEl.abId, otherLink: pair.otherLink},...]
+	  // el.workerRef?.current?.postMessage({ type: 'ignore_pairs', ignorePairs }) :
+	  if (self.cdPortHandler && typeof self.abId === 'number') {
+	    const ignorePairs = new Int32Array(data.ignorePairs.length * 4);
+	    data.ignorePairs.forEach((pair, index) => {
+	      ignorePairs[index*4] = self.abId; // my_abId
+	      ignorePairs[index*4 + 1] = pair.myLink;
+	      ignorePairs[index*4 + 2] = pair.otherAbId; // other_abId
+	      ignorePairs[index*4 + 3] = pair.otherLink;
+	    } );
+	    try {
+	      ucl_logger?.debug('$$$$$$$$$$ Sending ignore pairs to cd-worker:', data.ignorePairs);
+	      await self.cdPortHandler?.callRpc({command: 'ignore_pairs', ignorePairs},
+		[ignorePairs.buffer], 500);
+	      ucl_logger?.debug('Sent ignore pairs to cd-worker:', data.ignorePairs);
+	    } catch (error) {
+	      ucl_logger?.error('Failed to send ignore pairs to cd-worker:', error);
+	    }
+	  } else {
+	    ucl_logger?.error('cdPortHandler is not ready to send ignore pairs data');
 	  }
-	} else {
-	  ucl_logger?.error('cdPortHandler is not ready to send ignore pairs data');
-	}
-      }
+        }
 	break;
 
       case 'set_initial_joints':
@@ -759,15 +759,33 @@ async function processCommandQueue() {
 	ucl_logger?.debug('arg:', data.jointLimitKeepMoving);
 	ucl_logger?.debug('calcObj.state:', calcObj.state);
 	if (calcObj.state === st.generatorReady ||
-	    calcObj.state === st.slrmReady) {
-	  if (data.jointLimitKeepMoving !== undefined) {
-
-	    calcObj.jointLimitKeepMoving = data.jointLimitKeepMoving;
-	    ucl_logger?.log('Joint limit keep moving set to: ',
-			    calcObj.jointLimitKeepMoving);
-	  }
-	}
+	  calcObj.state === st.slrmReady) {
+	    if (data.jointLimitKeepMoving !== undefined) {
+              // calcObj.joints.lengthサイズの全て1のArrayのmaskを作成して
+              // calcObj.setJointLimitIgnoreMask(mask)を呼ぶ
+              const mask = new Array(calcObj.joints.length).fill(1);
+              calcObj.setJointLimitIgnoreMask(mask);
+	      // calcObj.jointLimitKeepMoving = data.jointLimitKeepMoving;
+	      ucl_logger?.log('Joint limit keep moving mask set to: ',
+                calcObj.jointLimitIgnoreMask);
+	    }
+          }
 	break;
+      case 'set_joint_limit_keep_moving_mask':
+        if (calcObj.state === st.generatorReady ||
+          calcObj.state === st.slrmReady) {
+            if (data.jointLimitKeepMovingMask !== undefined &&
+              Array.isArray(data.jointLimitKeepMovingMask) &&
+              data.jointLimitKeepMovingMask.length === calcObj.joints.length) {
+                // calcObj.jointLimitKeepMovingMask = data.jointLimitKeepMovingMask;
+                calcObj.setJointLimitIgnoreMask(data.jointLimitKeepMovingMask);
+                ucl_logger?.log('Joint limit keep moving mask set to: ',
+                  calcObj.jointLimitIgnoreMask);
+              } else {
+                ucl_logger?.error('set_joint_limit_keep_moving_mask: invalid mask data received:', data.jointLimitKeepMovingMask, 'expected length:', calcObj.joints.length);
+              }
+          }
+        break;
       default:
 	  break;
       }

@@ -13,7 +13,7 @@ function kebabToSnakeCase(str) {
 }
 
 function registerBooleanMessageComponent(componentName,
-					 messageType = kebabToSnakeCase(componentName)) {
+                                         messageType = kebabToSnakeCase(componentName)) {
   AFRAME.registerComponent(componentName, {
     schema: {
       default: false,
@@ -41,7 +41,7 @@ function registerBooleanMessageComponent(componentName,
       }
       else {
 	this.el.addEventListener('ik-worker-ready', this.setFunction,
-				 { once: true });
+	                         { once: true });
       }
     }
   });
@@ -51,6 +51,43 @@ registerBooleanMessageComponent('set-exact-solution');
 registerBooleanMessageComponent('set-ignore-joint-limits');
 registerBooleanMessageComponent('set-ignore-collisions');
 registerBooleanMessageComponent('set-joint-limit-keep-moving');
+
+// ik-worker(this.el.workerRef.current)に'set_joint_limit_keep_moving_mask'
+// タイプのメッセージをpostするコンポーネント
+// メッセージのjointLimitKeepMovingMaskキーに、引数(schema)を0,1の配列にした
+// ものを付ける
+
+AFRAME.registerComponent('joint-limit-keep-moving-mask', {
+  schema: {
+    mask: { type: 'array', default: [] },
+  },
+  init: function () {
+    const propertyName = 'jointLimitKeepMovingMask';
+    this.postFunction = () => {
+      if (this.el.workerRef?.current) {
+        globalThis.__customLogger.log(`Posting message to worker: set_joint_limit_keep_moving_mask with value ${this.data.mask}`);
+        this.el.workerRef.current.postMessage({
+          type: 'set_joint_limit_keep_moving_mask',
+          [propertyName]: this.data.mask,
+	});
+      } else {
+        globalThis.__customLogger.warn(`Worker reference not found for set_joint_limit_keep_moving_mask`);
+      }
+    };
+  },
+  update: function () {
+    if (this.el.ikWorkerReady) {
+      this.postFunction();
+    } else {
+      this.el.addEventListener('ik-worker-ready', this.postFunction, { once: true });
+    }
+  }
+});
+
+
+
+
+
 
 AFRAME.registerComponent('suppress-cd-worker', {
   sceneOnly: true,
@@ -91,7 +128,7 @@ AFRAME.registerComponent('cd-worker-log-timing', {
 				       postLogTimingMessage,
 				       { once: true });
     }
-  }
+  },
 });
 
 AFRAME.registerComponent('cd-worker-log-collision', {
@@ -123,4 +160,3 @@ AFRAME.registerComponent('cd-worker-log-collision', {
     }
   }
 });
-
