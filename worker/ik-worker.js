@@ -201,6 +201,7 @@ async function processCommandQueue() {
       switch (data.type) {
       case 'init': if (calcObj.state === st.waitingRobotType) {
 	calcObj.state = st.generatorMaking;
+        calcObj.urdfPath = data.filename;
 	ucl_logger?.log('constructing CmdVelGenerator with :',
 			data.filename);
 	ucl_logger?.debug('URDF modifier file is', data.modifier);
@@ -374,6 +375,10 @@ async function processCommandQueue() {
 					     500); // 0.5秒のタイムアウトを設定
 		    self.abId = abIdObj.abId; // cd-workerから返されたabIdを保存
 		    calcObj.abIdRegistered = self.abId; // calcObjからもアクセスできるようにする
+                    ucl_logger?.log('CD reg info:',
+                      'abId:', calcObj.abIdRegistered,
+                      'num rb:', linkShapes.length,
+                      'type:', self.myBodyName);
 		  } else {
 		    throw new Error('cdPortHandler is not ready to send link shapes data');
 		  }

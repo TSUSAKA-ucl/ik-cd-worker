@@ -26,6 +26,7 @@ function copyWasmVecToArray(emVec, jsArray) { // , wasmModule) {
 class IkCdCalc {
   #jointLimitKeepMoving;
   constructor (slrmModule, cdModule, cmdQueue) {
+    this.urdfPath = '';
     // this.jointLimitKeepMoving = true;
     this.#jointLimitKeepMoving = false;
     this.slrmModule = slrmModule; // SLRM WASM module
@@ -294,6 +295,11 @@ class IkCdCalc {
 	  this.sendLinkCoordsToCd(this.joints);
 	  if (this.rewindQueue.newestResult.length) {
 	    // detect collision(s)
+            ucl_logger?.debug('##ik-worker:',
+              this.urdfPath,
+              'abId:',this.abIdRegistered,
+              'DETECT COLLISION:',
+              this.rewindQueue.newestResult);
 	    if (this.dontStepBack) {
 	      this.joints.set(this.prevJoints);
 	    } else {
