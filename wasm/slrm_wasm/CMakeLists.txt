@@ -1,4 +1,6 @@
 cmake_minimum_required(VERSION 3.13)
+# 1. compile_commands.json をデフォルトで生成する（コマンドラインからのOFF上書きも許容）
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL "Export compile commands")
 project(SlrmWasmModule)
 
 set(CMAKE_CXX_STANDARD 17)

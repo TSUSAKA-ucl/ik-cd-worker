@@ -249,16 +249,17 @@ async function processCommandQueue() {
 	      ucl_logger?.debug('CmdVelGen instance created:', cmdVelGen);
 	    }
 	    // prepare the main loop object
-	    const revolutes = urdfData.filter(obj =>
+	    const movableJoints = urdfData.filter(obj =>
 	      obj.$.type === 'revolute' ||
+                obj.$.type === 'prismatic' ||
 		obj.$.type === 'continuous'
 	    );
-	    calcObj.prepareVectors(revolutes.length, 16);
+	    calcObj.prepareVectors(movableJoints.length, 16);
 	    calcObj.prepareCmdVelGen(cmdVelGen);
 	    // joint limitsの設定
 	    const jointUpperLimits = [];
 	    const jointLowerLimits = [];
-	    revolutes.forEach(obj => {
+	    movableJoints.forEach(obj => {
 	      jointUpperLimits.push(obj.limit.$.upper);
 	      jointLowerLimits.push(obj.limit.$.lower);
 	    });
@@ -278,7 +279,7 @@ async function processCommandQueue() {
 	    cmdVelGen?.setAngularGain(100.0); // 20 s^-1
 	    cmdVelGen?.setLinearGain(100.0); // 20 s^-1
 	    const jointVelocityLimit
-		  = makeDoubleVector(Array(revolutes.length).fill(Math.PI*2.0)); // 2.0Pi/s // 20Pi rad/s
+		  = makeDoubleVector(Array(movableJoints.length).fill(Math.PI*2.0)); // 2.0Pi/s // 20Pi rad/s
 	    cmdVelGen?.setJointVelocityLimit(jointVelocityLimit); // ジョイント速度制限を設定
 	    jointVelocityLimit.delete();
 
@@ -290,13 +291,13 @@ async function processCommandQueue() {
 	      linkShapesPromise = fetch(data.linkShapes)
 		.then(response => response.json())
 		.then(async linkShapes => {
-		  if (linkShapes.length !== revolutes.length + 2) {
+		  if (linkShapes.length !== movableJoints.length + 2) {
 		    // +2はbaseとend_effectorの分
 		    if (linkShapes.length !== 0)
 		      ucl_logger?.error('干渉形状定義の数',
 					linkShapes.length,
 					'がジョイントの数(+2 effector必須)',
-					revolutes.length+2,
+					movableJoints.length+2,
 					'と一致しません。');
 		    return;
 		  }

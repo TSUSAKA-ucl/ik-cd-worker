@@ -2,9 +2,12 @@
 const noop = () => {}
 
 const customLogger = {
+  none: noop,
+  // debug: console.debug,
   debug: noop,
-  log:  noop,
-  warn:  noop,
-  error: noop,
+  info: console.log,
+  log:  console.log,
+  warn:  console.warn,
+  error: console.error,
 }
 export {customLogger};
